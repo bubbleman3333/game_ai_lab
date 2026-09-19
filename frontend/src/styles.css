@@ -233,8 +233,10 @@ button.listening { border-color: var(--accent); color: var(--accent); }
   --shogi-target: rgba(57, 135, 229, 0.85);
 }
 .shogi-layout { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-.shogi-main { position: relative; }
-.shogi-board-wrap { display: flex; flex-direction: column; gap: 6px; width: min(480px, 100%); }
+/* 盤面は最大 680px。画面の高さが低いときは、持ち駒まで一度に見えるよう高さに合わせて小さくする。
+   幅は .shogi-main に持たせる（中の SVG が width: 100% なので、親に幅がないと SVG の既定の 300px に縮む） */
+.shogi-main { position: relative; flex: 0 0 auto; width: min(680px, 100%, max(360px, calc(100vh - 140px))); }
+.shogi-board-wrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .shogi-board { width: 100%; height: auto; display: block; user-select: none; }
 .shogi-piece { font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-weight: 700; pointer-events: none; }
 .shogi-hand { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-height: 40px; }
@@ -293,7 +295,7 @@ button, select { touch-action: manipulation; }
 @media (max-width: 700px) {
   /* 盤の横に情報欄を並べる画面は、縦に積む */
   .shogi-layout, .othello-layout, .airhockey-layout { flex-direction: column; align-items: stretch; }
-  .shogi-board-wrap, .othello-board-wrap { width: 100%; }
+  .shogi-main, .shogi-board-wrap, .othello-board-wrap { width: 100%; }
   .airhockey-wrap { width: min(300px, 100%); margin: 0 auto; }
   .airhockey-score { flex-direction: row; gap: 24px; font-size: 1.5rem; }
 }

@@ -1,7 +1,7 @@
 // ひとりで遊ぶ / AI が遊ぶのを見る。
 
 import { useEffect, useMemo, useState } from 'react'
-import { AiControls, AiVersion, AI_SPEEDS } from '../components/AiControls'
+import { AiControls, AiVersion, AI_SPEEDS, DEFAULT_AI_SPEED } from '../components/AiControls'
 import { KeyHelp } from '../components/KeyHelp'
 import { TouchControls } from '../components/TouchControls'
 import { isTouchDevice, useTetrisCell } from '../../../lib/useViewport'
@@ -21,7 +21,7 @@ export function PlayPage() {
   const [mode, setMode] = useState<Mode>('human')
   const [round, setRound] = useState(0)
   const [agent, setAgent] = useState('')
-  const [speed, setSpeed] = useState(1)
+  const [speed, setSpeed] = useState(DEFAULT_AI_SPEED)
   const [error, setError] = useState<string | null>(null)
   const { agents, error: agentError } = useAgents()
   const cell = useTetrisCell(1, 28)

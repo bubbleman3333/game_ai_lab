@@ -2,12 +2,20 @@
 
 import type { AgentDto } from '../api/types'
 
+/** AI の速さ。PPS（1 秒に置くミノの数）で指定する。人の PPS に合わせると、組み方の勝負になる */
+const PPS_CHOICES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4]
+
 export const AI_SPEEDS = [
-  { label: 'ゆっくり', actionDelayMs: 80, pieceDelayMs: 600 },
-  { label: 'ふつう', actionDelayMs: 40, pieceDelayMs: 300 },
-  { label: 'はやい', actionDelayMs: 15, pieceDelayMs: 120 },
+  ...PPS_CHOICES.map((pps) => ({
+    label: `${pps} PPS`,
+    // 1 手の時間の中で操作を見やすく散らす（速すぎ・遅すぎにならない範囲で）
+    actionDelayMs: Math.round(Math.min(80, Math.max(15, 1000 / pps / 8))),
+    pieceDelayMs: Math.round(1000 / pps),
+  })),
   { label: '最速', actionDelayMs: 0, pieceDelayMs: 0 },
 ]
+/** 最初に選ばれている速さ（2 PPS） */
+export const DEFAULT_AI_SPEED = PPS_CHOICES.indexOf(2)
 
 interface Props {
   agents: AgentDto[]

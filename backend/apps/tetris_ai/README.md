@@ -9,6 +9,9 @@
 | `services.py` | Service | `choose_move()`（手を選ぶ） |
 | `agent_registry.py` | | AI の ID ↔ 重みファイル（`runs/tetris/<run>/checkpoints/*.pt`）。読み込んだ AI をキャッシュ |
 
+AI の先読みの深さは `config/settings.py` の `TETRIS_AI_LOOKAHEAD`（既定 4 = NEXT を 4 個先まで読む。1 手 0.2 秒ほど。
+0 にすると先読みなし）。中身は [rl/tetris/README.md](../../rl/tetris/README.md) の「対局での先読み」。
+
 ## POST /api/tetris/move/
 ```json
 {

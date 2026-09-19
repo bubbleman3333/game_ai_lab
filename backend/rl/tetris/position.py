@@ -52,6 +52,7 @@ class Candidate:
     hold_after: str | None
     next_after: str | None  # この手の後に出てくるミノ
     dead: bool
+    queue_after: list[str] = field(default_factory=list)  # next_after より後のツモ（先読み用）
 
     @property
     def path(self) -> list[str]:
@@ -70,10 +71,22 @@ def enumerate_candidates(pos: Position) -> list[Candidate]:
     result: list[Candidate] = []
     for use_hold, piece, hold_after, queue in options:
         next_after = queue[0] if queue else None
+        rest = list(queue[1:])
         for pl in find_placements(pos.board, piece):
             out = resolve_lock(pos.board, pl.piece, pl.rot, pl.x, pl.y, pl.spin, pos.combo, pos.b2b, pos.pending)
             dead = out.dead or (
                 next_after is not None and out.board.collides(next_after, 0, SPAWN_X, SPAWN_Y)
             )
-            result.append(Candidate(pl, use_hold, out, hold_after, next_after, dead))
+            result.append(Candidate(pl, use_hold, out, hold_after, next_after, dead, rest))
     return result
+
+
+def position_after(c: Candidate) -> Position | None:
+    """手 c を打った後の局面（次のミノが出た状態）。死ぬ手・次のミノが分からないときは None。"""
+    if c.dead or c.next_after is None:
+        return None
+    o = c.outcome
+    return Position(
+        board=o.board, current=c.next_after, hold=c.hold_after, can_hold=True, next=c.queue_after,
+        combo=o.combo, b2b=o.b2b, pending=[list(p) for p in o.pending],
+    )

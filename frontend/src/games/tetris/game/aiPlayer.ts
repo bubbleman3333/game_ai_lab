@@ -10,7 +10,7 @@ export interface AiOptions {
   agent?: string
   /** 1 操作ごとの間隔（ms）。0 なら一瞬で置く */
   actionDelayMs: number
-  /** 1 手ごとに最低これだけ待つ（ms）。速さの調整用 */
+  /** 1 手にかける時間（ms。ミノが出てからハードドロップまで）。1000 / PPS。速さの調整用 */
   pieceDelayMs: number
 }
 
@@ -32,6 +32,7 @@ export class AiPlayer {
   private path: Action[] = []
   private nextActionAt = 0
   private pieceStartedAt = 0
+  private lastDropAt: number | null = null // 直前にハードドロップした時刻（PPS をずれなく保つため）
   private generation = 0 // stop() 後に返ってきた応答を捨てるため
   private retryAt = 0
   private failing = false
@@ -45,6 +46,7 @@ export class AiPlayer {
   start(): void {
     this.generation++
     this.path = []
+    this.lastDropAt = null
     this.state = 'idle'
   }
 
@@ -80,6 +82,7 @@ export class AiPlayer {
         this.path = ['HD']
       }
       if (a === 'HD') {
+        this.lastDropAt = now
         this.state = 'idle'
         return
       }
@@ -89,7 +92,10 @@ export class AiPlayer {
 
   private think(now: number): void {
     this.state = 'thinking'
-    this.pieceStartedAt = now
+    // 次のミノは前のハードドロップの瞬間に出ているので、そこから数える。
+    // 画面の 1 フレーム分の遅れが毎手たまって、設定した PPS より遅くなるのを防ぐ
+    const last = this.lastDropAt
+    this.pieceStartedAt = last !== null && now - last < 100 ? last : now
     const gen = this.generation
     requestMove(positionFromGame(this.controller.game), this.opts.agent || undefined)
       .then((move) => {

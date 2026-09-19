@@ -114,6 +114,9 @@ TRAINING_RUNS_DIR = Path(os.environ.get("TRAINING_RUNS_DIR", BASE_DIR / "runs"))
 TRAINING_ALLOW_SYNC_API = _env_bool("TRAINING_ALLOW_SYNC_API", DEBUG)
 # テトリス AI の手を API で計算するデバイス。1 手ずつの推論は CPU で十分速い
 TETRIS_AI_DEVICE = os.environ.get("TETRIS_AI_DEVICE", "cpu")
+# テトリス AI の先読み（NEXT を何個先まで読むか。0 なら今のミノだけ）。4 で 1 手 0.2 秒ほど。深いほど強い
+# （rl/tetris/README.md の「対局での先読み」）。サーバーが重いときは下げる
+TETRIS_AI_LOOKAHEAD = int(os.environ.get("TETRIS_AI_LOOKAHEAD", "4"))
 # 将棋 AI の探索（MCTS）に使うデバイス。GPU がなければ自動で CPU
 SHOGI_AI_DEVICE = os.environ.get("SHOGI_AI_DEVICE", "cuda")
 

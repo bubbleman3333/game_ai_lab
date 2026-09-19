@@ -63,10 +63,10 @@ def strength_score(res: dict) -> float:
     return sum(m["avg_attack"] + 0.1 * m["avg_lines"] for m in res.values())
 
 
-def load_agent(target: str, device: str = "cpu") -> Agent:
+def load_agent(target: str, device: str = "cpu", lookahead: int = 0, beam: int = 8) -> Agent:
     if target == "heuristic":
         return HeuristicAgent()
-    return NeuralAgent.load(Path(target), device)
+    return NeuralAgent.load(Path(target), device, lookahead=lookahead, beam=beam)
 
 
 def main() -> None:
@@ -74,12 +74,14 @@ def main() -> None:
     ap.add_argument("target", help="チェックポイントのパス、または heuristic")
     ap.add_argument("--games", type=int, default=10)
     ap.add_argument("--max-pieces", type=int, default=300)
+    ap.add_argument("--lookahead", type=int, default=0, help="1 なら NEXT のミノまで読む（2 手先読み）")
+    ap.add_argument("--beam", type=int, default=8, help="先読みする 1 手目の候補の数")
     ap.add_argument("--out", type=Path, help="結果を JSON で保存する先")
     ap.add_argument("--save-run", help="runs/<名前>/ に学習と同じ形式で保存する（強さページで見られる）")
     args = ap.parse_args()
 
     t = time.time()
-    res = evaluate(load_agent(args.target), args.games, args.max_pieces)
+    res = evaluate(load_agent(args.target, lookahead=args.lookahead, beam=args.beam), args.games, args.max_pieces)
     print(json.dumps(res, indent=2, ensure_ascii=False))
     print(f"({time.time() - t:.1f}s)")
     if args.out:

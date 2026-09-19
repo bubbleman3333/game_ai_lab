@@ -58,4 +58,20 @@ describe('AiPlayer', () => {
     expect(requestMove.mock.calls.at(-1)?.[1]).toBeUndefined() // 2 回目以降は既定の AI に聞いている
     expect(controller.game.stats.pieces).toBeGreaterThan(0)
   })
+
+  it('places pieces at the chosen PPS without drifting', async () => {
+    requestMove.mockReset()
+    requestMove.mockResolvedValue({ agent: 'x', agent_episode: 1, path: ['L', 'HD'] })
+    const controller = new GameController(new Game(3), { gravityMs: 0 })
+    const ai = new AiPlayer(controller, { actionDelayMs: 30, pieceDelayMs: 500 }) // 2 PPS
+    ai.start()
+    let now = performance.now()
+    for (let t = 0; t < 4100; t += 1000 / 60) { // 60fps で 4.1 秒
+      now += 1000 / 60
+      ai.update(now)
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    // 2 PPS なら 4.1 秒で 8 手。1 フレームの遅れが毎手たまると 7 手に減る
+    expect(controller.game.stats.pieces).toBe(8)
+  })
 })

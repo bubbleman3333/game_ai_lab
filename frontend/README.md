@@ -48,6 +48,12 @@ src/
 初期設定は `src/games/tetris/game/keyboard.ts` の `DEFAULT_KEYS`（`KeyboardEvent.code` で指定）と `DEFAULT_HANDLING`（DAS/ARR）。
 画面下の操作説明は保存された設定から自動で作られる。
 
+## テトリスの AI の速さ・対戦の設定
+- AI の速さは PPS（1 秒に置くミノの数）で選ぶ（`components/AiControls.tsx` の `AI_SPEEDS`）。
+  人の PPS に合わせると、組み方（火力の効率）の勝負になる。`game/aiPlayer.ts` は前のハードドロップの時刻から
+  次の手の時間を数えるので、画面のフレームの遅れがたまって PPS が下がることはない。
+- 「AI と対戦」の「ミノの順番」で、両者のツモ順を同じにするか別々にするかを選べる。
+
 ## 効果音
 音声ファイルは使わず、Web Audio でその場で作っている（`src/lib/sound.ts`）。
 音色を変えたいときは `src/games/<ゲーム>/sounds.ts` だけを直す。音量・ミュートは画面右上（ブラウザに保存）。

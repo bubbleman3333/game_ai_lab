@@ -71,7 +71,7 @@ def get_agent(agent_id: str | None) -> Agent:
         cached = _cache.get(agent_id)
         if cached and cached[0] == info.updated_at:
             return cached[1]
-        agent = NeuralAgent.load(info.path, settings.TETRIS_AI_DEVICE)
+        agent = NeuralAgent.load(info.path, settings.TETRIS_AI_DEVICE, lookahead=settings.TETRIS_AI_LOOKAHEAD)
         agent.name = agent_id
         _cache[agent_id] = (info.updated_at or 0, agent)
         return agent

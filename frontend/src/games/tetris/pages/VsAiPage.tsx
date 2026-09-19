@@ -1,7 +1,7 @@
 // 自分 vs AI、または AI vs AI（同じ画面で対戦。おじゃまを送り合う）。
 
 import { useEffect, useMemo, useState } from 'react'
-import { AiControls, AiVersion, AI_SPEEDS } from '../components/AiControls'
+import { AiControls, AiVersion, AI_SPEEDS, DEFAULT_AI_SPEED } from '../components/AiControls'
 import { KeyHelp } from '../components/KeyHelp'
 import { TouchControls } from '../components/TouchControls'
 import { isTouchDevice, useTetrisCell } from '../../../lib/useViewport'
@@ -24,10 +24,12 @@ export function VsAiPage() {
   const [mode, setMode] = useState<Mode>('human')
   const [round, setRound] = useState(0)
   const [agent, setAgent] = useState('')
-  const [speed, setSpeed] = useState(1)
+  const [speed, setSpeed] = useState(DEFAULT_AI_SPEED)
   // AI vs AI のときの左側の AI
   const [agent2, setAgent2] = useState('heuristic')
-  const [speed2, setSpeed2] = useState(1)
+  const [speed2, setSpeed2] = useState(DEFAULT_AI_SPEED)
+  // ツモ順（ミノの出る順番）を両者で同じにするか。同じ AI 同士を「別々」にすると、運の差込みでの勝負が見られる
+  const [sameQueue, setSameQueue] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [errorLeft, setErrorLeft] = useState<string | null>(null) // AI vs AI の左の AI
   const [startAt, setStartAt] = useState(() => performance.now() + COUNTDOWN_MS)
@@ -35,13 +37,14 @@ export function VsAiPage() {
   const cell = useTetrisCell(2, 26)
 
   const { me, cpu } = useMemo(() => {
-    const seed = Math.floor(Math.random() * 2 ** 31) // 両者同じツモ順
+    const newSeed = () => Math.floor(Math.random() * 2 ** 31)
+    const seed = newSeed()
     const me = new GameController(new Game(seed), mode === 'ai' ? { gravityMs: 0 } : {})
-    const cpu = new GameController(new Game(seed), { gravityMs: 0 })
+    const cpu = new GameController(new Game(sameQueue ? seed : newSeed()), { gravityMs: 0 })
     me.paused = cpu.paused = true
     return { me, cpu }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round, mode])
+  }, [round, mode, sameQueue])
   const keyboard = useMemo(() => new KeyboardInput(me, loadKeys(), loadHandling()), [me])
   const leftAi = useMemo(() => {
     if (mode !== 'ai') return null
@@ -116,6 +119,13 @@ export function VsAiPage() {
           <select value={mode} onChange={(e) => { setMode(e.target.value as Mode); restart() }}>
             <option value="human">あなた vs AI</option>
             <option value="ai">AI vs AI（観戦）</option>
+          </select>
+        </label>
+        <label>
+          ミノの順番
+          <select value={sameQueue ? 'same' : 'diff'} onChange={(e) => { setSameQueue(e.target.value === 'same'); restart() }}>
+            <option value="same">両者同じ</option>
+            <option value="diff">別々</option>
           </select>
         </label>
         <button onClick={restart}>もう一度</button>
