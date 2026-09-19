@@ -1,0 +1,11 @@
+# PyTorch は GPU 版を別に入れる（backend/README.md 参照）:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+Django==6.1.1
+djangorestframework==3.18.1
+channels==4.3.2
+daphne==4.2.3
+django-cors-headers==4.9.0
+numpy==1.26.4  # cshogi の都合で 1.26 系
+# 将棋（ルール処理と棋譜の読み込み。cshogi は GPL-3.0）
+cshogi==1.0.6
+py7zr==1.1.3

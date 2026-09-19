@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/db.sqlite3*
+backend/staticfiles/
+# 学習結果（大きいので Git に入れない。公開用の重みは別途配布する）
+backend/runs/
+# Node
+frontend/node_modules/
+frontend/dist/
+# エディタ
+.idea/
+.vscode/
+# 学習用のデータ（将棋の棋譜など。大きいので Git に入れない）
+backend/data/
+# 公開用のツール（cloudflared など）
+tools/
+# ログと監視ページの合言葉（Git に入れない）
+backend/logs/
+backend/.monitor_token
+# 学習の実行ログ
+backend/*.log
