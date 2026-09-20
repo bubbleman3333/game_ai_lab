@@ -543,3 +543,72 @@ kbd {
   .racer-speed-value { font-size: 2.4rem; }
   .racer-standings { display: none; }
 }
+
+/* --- ポーカー --- */
+.poker-page { max-width: 900px; }
+.poker-setup { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.poker-felt {
+  background: var(--poker-felt, #15412f); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px;
+}
+.poker-seat {
+  display: flex; gap: 16px; align-items: center; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid transparent;
+}
+.poker-seat.turn { border-color: var(--accent); background: rgba(57, 135, 229, 0.12); }
+.poker-seat.ai { flex-direction: row-reverse; }
+.poker-seat-info { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
+.poker-seat-name { font-weight: 700; display: flex; gap: 6px; align-items: center; }
+.poker-button {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--text); color: var(--bg); font-size: 0.7rem; font-weight: 700;
+}
+.poker-bet { color: #ffd479; }
+.poker-hole, .poker-board { display: flex; gap: 6px; }
+.poker-middle {
+  display: flex; gap: 20px; align-items: center; justify-content: center; flex-wrap: wrap;
+  border-top: 1px solid rgba(255, 255, 255, 0.12); border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px 0;
+}
+.poker-pot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.poker-pot strong { font-size: 1.4rem; }
+.card-face {
+  width: 44px; height: 62px; border-radius: 5px; background: #fbfbf7; color: #16161a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-weight: 700; line-height: 1; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  border: 1px solid #c9c9c0;
+}
+.card-face.small { width: 32px; height: 45px; font-size: 0.8rem; }
+.card-face.red { color: #c22b2b; }
+.card-face.dim { opacity: 0.45; }
+.card-face.back {
+  background: repeating-linear-gradient(45deg, #2b4c8c, #2b4c8c 4px, #223d70 4px, #223d70 8px);
+  border-color: #16294d;
+}
+.card-face.slot { background: transparent; border: 1px dashed rgba(255, 255, 255, 0.25); box-shadow: none; }
+.card-rank { font-size: 1.15rem; }
+.card-suit { font-size: 1rem; }
+.poker-actions {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;
+  min-height: 36px;
+}
+.poker-raise { display: flex; gap: 8px; align-items: center; }
+.poker-raise input[type='range'] { width: 150px; }
+.poker-raise input[type='number'] { width: 76px; }
+.poker-preset { font-size: 0.85rem; padding: 4px 8px; }
+.poker-log ol { margin: 0; padding-left: 20px; }
+.poker-log li { padding: 2px 0; }
+:root[data-theme='light'] .poker-felt { --poker-felt: #1f6b4c; color: #f6fbf8; }
+:root[data-theme='light'] .poker-felt .muted { color: rgba(255, 255, 255, 0.72); }
+:root[data-theme='light'] .poker-felt .side-label { color: rgba(255, 255, 255, 0.72); }
+/* 濃い緑のテーブルの上では、勝ち色・薄い文字を明るくしないと読めない */
+.poker-felt .win { color: #7ef0ae; }
+.poker-felt .muted, .poker-felt .side-label { color: rgba(255, 255, 255, 0.7); }
+@media (max-width: 560px) {
+  .poker-seat { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .poker-seat.ai { flex-direction: column; align-items: flex-end; }
+  .poker-seat-info { min-width: 0; }
+  .card-face { width: 36px; height: 51px; }
+  .card-rank { font-size: 0.95rem; }
+  .poker-raise input[type='range'] { width: 110px; }
+}

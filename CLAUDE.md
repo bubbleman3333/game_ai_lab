@@ -13,6 +13,8 @@
    - エアホッケー → `backend/rl/airhockey/README.md`（物理は `backend/games/airhockey/physics.py` と TS 版）
    - レース（3D）→ `frontend/src/games/racer/README.md`（コースの足し方もここ）、学習 → `backend/rl/racer/README.md`
    - 将棋 → `backend/rl/shogi/README.md`、対局 API → `backend/apps/shogi/views.py` の先頭
+   - ポーカー（ヘッズアップ・ノーリミット）→ `backend/rl/poker/README.md`、ルールは `backend/games/poker/`、
+     API → `backend/apps/poker/README.md`、画面 → `frontend/src/games/poker/README.md`
    - 学習結果の API・強さページ → `backend/apps/training/README.md`
    - テトリス AI の API → `backend/apps/tetris_ai/README.md`
    - オンライン対戦（テトリス・ブロブチェイン共通）→ `backend/apps/tetris_online/README.md`
@@ -29,8 +31,14 @@
 - ブロブチェインの AI は報酬だけ変えた 2 種類（`versus` 対戦型 / `chain` 連鎖オンリー）。
   `rl/blob/config.py` の `REWARD_PRESETS` と `STYLE_DEFAULTS`。**どちらかに寄せず、両方残すこと**。
 - テトリスの特徴量（`rl/tetris/encoding.py`）とブロブチェインの特徴量（`rl/blob/encoding.py`）を変えたら
-  `FEATURE_VERSION`、オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION` を上げる。
-  古い重みは使えなくなる。
+  `FEATURE_VERSION`、オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION`、
+  ポーカーのまとめ方（`rl/poker/config.py`）を変えたら `ABSTRACTION_VERSION` を上げる。
+  古い重み・戦略は使えなくなる。
+- **ポーカーだけ TS 版のルールが無い**。相手の手札が見えないゲームなので、局面をブラウザに渡すと
+  AI の手札まで渡ってしまう。進行はすべてサーバー（`apps/poker`）で行い、画面には
+  「その人に見せていいもの」だけを返す。だから `games/poker/` に fixtures も無い。
+- ポーカーのレイズ額の枠は `games/poker/rules.py` の `RAISE_FRACTIONS` **1 か所だけ**に置く
+  （学習側と画面側で別々に持つと、学習していない手を AI に打たせる事故になる）。
 - オンライン対戦の WebSocket のメッセージは `backend/apps/tetris_online/protocol.py` と
   `frontend/src/api/online/protocol.ts` の両方を直す（テトリスとブロブチェインで共通）。
 - SQLite は WAL + `transaction_mode: IMMEDIATE`（`config/settings.py`）。外すと同時アクセスで "database is locked" が出る。
@@ -57,6 +65,7 @@ cd backend; .\.venv\Scripts\python -m pytest
 cd backend; .\.venv\Scripts\python -m rl.tetris.train --run-name <名前> [--workers 0 でデバッグ]
 cd backend; .\.venv\Scripts\python -m rl.blob.train --run-name <名前> --reward-preset <versus|chain>
 cd backend; .\.venv\Scripts\python -m rl.othello.train --run-name <名前> [--workers 0 でデバッグ]
+cd backend; .\.venv\Scripts\python -m rl.poker.train --run-name <名前> --depth <0〜5>  # 深さごとに別プロセスで回せる
 cd backend; .\.venv\Scripts\python manage.py sync_runs
 cd frontend; npm test; npx tsc -b
 ```

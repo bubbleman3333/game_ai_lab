@@ -12,9 +12,9 @@ config.json / metrics.jsonl / evals.jsonl / status.json / checkpoints/*.npz。
 `python manage.py sync_runs` で強さページに出る。
 
 **速くしたいとき**: スタックの深さごとに表が完全に分かれている（情報集合の鍵の先頭が深さ）ので、
-`--depth 0` `--depth 1` `--depth 2` を**別々のプロセスで同時に走らせて**から
+`--depth 0`〜`--depth 5` を**別々のプロセスで同時に走らせて**から
 `python -m rl.poker.merge` でまとめれば、そのまま台数分速くなる。
-1 プロセスで `--depth all` にすると 3 つの深さを順番に回すので、同じ時間なら 1/3 ずつしか進まない。
+1 プロセスで `--depth all` にすると深さを順番に回すので、同じ時間なら 1/6 ずつしか進まない。
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ class TrainConfig:
     depth: str = "all"  # "all" か "0"〜（config.STACK_DEPTHS_BB の番号）
     seed: int = 1
     eval_every: int = config.EVAL_EVERY
-    eval_hands: int = 8_000
-    eval_matches: int = 40
+    eval_hands: int = 4_000
+    eval_matches: int = 30
     snapshot_every: int = 1_000_000  # 世代として別に残す間隔（あとで並べて比べるため）
     log_every: int = 2_000
 
@@ -111,27 +111,46 @@ class Trainer:
         return total / max(1, n)
 
     def _evaluate(self) -> None:
+        """基準の相手と対戦して強さを測り、evals.jsonl に書く。
+
+        結果の鍵は**スタックの深さに依存しない名前**にする（`vs_heuristic` など）。
+        深さごとの内訳は `by_depth` に入れる。こうしておくと、深さ別に分けて学習しても
+        強さページが同じ設定で読める。
+        """
         t0 = time.time()
         strategy = mccfr.Strategy.from_table(self.table, self._meta())
-        results: dict[str, dict] = {}
+        by_depth: dict[str, dict] = {}
+        totals: dict[str, list[float]] = {}
         for depth in self.depths:
-            stack = config.STACK_DEPTHS_BB[depth] * 2
+            bb = config.STACK_DEPTHS_BB[depth]
+            stack = bb * 2
             me = players.strategy_player(strategy, seed=self.done + depth)
-            baselines = {
-                name: players.BASELINES[name](self.done + depth)
-                for name in ("random", "caller", "heuristic", "heuristic-loose")
-            }
-            for name, opponent in baselines.items():
+            here: dict[str, dict] = {}
+            for name in ("random", "caller", "heuristic", "heuristic-loose"):
+                opponent = players.BASELINES[name](self.done + depth)
                 r = evaluate.head_to_head(me, opponent, hands=self.cfg.eval_hands,
                                           seed=self.done + depth + 1, start_stack=stack)
-                results[f"{config.STACK_DEPTHS_BB[depth]}bb_vs_{name}"] = r.as_dict()
+                here[f"vs_{name}"] = r.as_dict()
+                totals.setdefault(f"vs_{name}", []).append(r.mbb_per_hand)
             # 「簡単に退場しないか」は別に測る（スタックを持ち越して飛ぶまで打つ）
             surv = evaluate.survival(me, players.BASELINES["heuristic"](self.done),
                                      matches=self.cfg.eval_matches, start_stack=stack,
                                      max_hands=200, seed=self.done + 7)
-            results[f"{config.STACK_DEPTHS_BB[depth]}bb_survival"] = surv.as_dict()
+            here["survival"] = surv.as_dict()
+            totals.setdefault("bust_rate", []).append(surv.bust_rate)
+            by_depth[f"{bb}bb"] = here
 
-        score = evaluate.score_of({k: v for k, v in results.items() if "mbb_per_hand" in v})
+        results: dict[str, dict] = {"by_depth": by_depth}
+        for name, values in totals.items():
+            mean = sum(values) / len(values)
+            if name == "bust_rate":
+                results["survival"] = {"bust_rate": round(mean, 4)}
+            else:
+                results[name] = {"mbb_per_hand": round(mean, 1)}
+        # 「一番よい学習結果」を選ぶ 1 つの数字: 全部の相手・全部の深さに対する mbb/hand の平均
+        vs_means = [results[k]["mbb_per_hand"] for k in results if k.startswith("vs_")]
+        score = sum(vs_means) / max(1, len(vs_means))
+
         is_best = score > self.best
         ckpt = self.dir / "checkpoints"
         mccfr.save(ckpt / "latest.npz", self.table, self._meta())
@@ -149,7 +168,8 @@ class Trainer:
             "eval_sec": round(time.time() - t0, 1),
             "at": now_iso(),
         })
-        shown = {k: v.get("mbb_per_hand", v.get("bust_rate")) for k, v in results.items()}
+        shown = {k: v.get("mbb_per_hand", v.get("bust_rate")) for k, v in results.items()
+                 if k != "by_depth"}
         print(f"  [評価] {self.done:,} 回 score={score:.1f} mbb/hand (最良 {self.best:.1f}) {shown}")
         self._status("running")
 

@@ -54,6 +54,14 @@ const GAMES = [
       { to: '/shogi/stats', label: 'AI の強さ' },
     ],
   },
+  {
+    title: 'ポーカー',
+    text: '1 対 1 のノーリミット・テキサスホールデム。相手の手札が見えないので、AI は「手を確率で混ぜる」CFR（反事実的後悔最小化）で学習する',
+    links: [
+      { to: '/poker', label: 'AI と対戦' },
+      { to: '/poker/stats', label: 'AI の強さ' },
+    ],
+  },
 ]
 
 export function HomePage() {

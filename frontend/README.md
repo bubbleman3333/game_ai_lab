@@ -33,6 +33,7 @@ src/
     sounds.ts             効果音
     api/ components/ pages/
   games/blob/             ブロブチェイン（落ち物パズル）→ games/blob/README.md
+  games/poker/            ポーカー（engine/ が無く、進行はサーバー側。相手の手札を渡せないため）→ games/poker/README.md
   games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
   styles.css              色は CSS 変数で指定（暗い配色が基本。`:root[data-theme='light']` で明るい配色）
 ```

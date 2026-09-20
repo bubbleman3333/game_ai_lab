@@ -10,6 +10,7 @@
 | エアホッケー | `/airhockey` AI と対戦・`/airhockey/stats` 強さ | 学習なし AI の模倣から始め、PPO（強化学習）で自己対戦 |
 | レース（3D） | `/racer` 走る・`/racer/stats` 強さ | 学習なしの運転者の模倣から始め、PPO（強化学習）。描画は three.js |
 | 将棋 | `/shogi` AI と対局 | 強豪 AI 同士の棋譜（floodgate）で ResNet を教師あり学習し、モンテカルロ木探索（dlshogi 方式） |
+| ポーカー | `/poker` AI と対戦・`/poker/stats` 強さ | 1 対 1 のノーリミット・ホールデム。**相手の手札が見えない**ので価値を学ぶやり方は使えず、手を確率で混ぜる CFR で学習 |
 
 ## 起動（Windows / PowerShell）
 
@@ -53,6 +54,7 @@ cd backend
 .\.venv\Scripts\python -m rl.airhockey.train --run-name v1  # エアホッケー（CPU）→ backend/rl/airhockey/README.md
 .\.venv\Scripts\python -m rl.racer.train --run-name v1      # レース（CPU）→ backend/rl/racer/README.md
 .\.venv\Scripts\python -m rl.shogi.train --run-name v1      # 将棋（GPU。先に棋譜の準備が要る）→ backend/rl/shogi/README.md
+.\.venv\Scripts\python -m rl.poker.train --run-name v1 --depth 5  # ポーカー（CPU。深さごとに別プロセスで回せる）→ backend/rl/poker/README.md
 .\.venv\Scripts\python manage.py sync_runs                  # 結果を強さページに取り込む
 ```
 
@@ -86,6 +88,7 @@ backend/                  Django + DRF + Channels                       → back
   apps/airhockey/         エアホッケーの方策の配信・試合結果              （中身は views.py の先頭のコメント）
   apps/racer/             レースの方策の配信・走行記録                   → backend/apps/racer/README.md
   apps/shogi/             将棋の対局（ルール判定・AI の探索はサーバー）     （中身は views.py の先頭のコメント）
+  apps/poker/             ポーカーの対戦（相手の手札を見せないため状態はサーバー側） → backend/apps/poker/README.md
   apps/monitoring/        利用状況（今誰が遊んでいるか）・出来事とエラーの記録
   logs/                   ログ（Git には入れない）
   data/                   学習用データ（将棋の棋譜など。Git には入れない）

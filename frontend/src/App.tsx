@@ -13,6 +13,8 @@ import { ShogiPage } from './games/shogi/pages/ShogiPage'
 import { ShogiStatsPage } from './games/shogi/pages/ShogiStatsPage'
 import { OthelloPlayPage } from './games/othello/pages/OthelloPlayPage'
 import { OthelloStatsPage } from './games/othello/pages/OthelloStatsPage'
+import { PokerPage } from './games/poker/pages/PokerPage'
+import { PokerStatsPage } from './games/poker/pages/PokerStatsPage'
 import { OnlineLobby } from './components/online/OnlineLobby'
 import { BlobOnlineRoomPage } from './games/blob/pages/BlobOnlineRoomPage'
 import { BlobSoloPage } from './games/blob/pages/BlobSoloPage'
@@ -63,6 +65,9 @@ export default function App() {
         <span className="nav-group">将棋</span>
         <NavLink to="/shogi" end>対局</NavLink>
         <NavLink to="/shogi/stats">強さ</NavLink>
+        <span className="nav-group">ポーカー</span>
+        <NavLink to="/poker" end>対戦</NavLink>
+        <NavLink to="/poker/stats">強さ</NavLink>
         <SoundControl />
         <ThemeToggle />
       </nav>
@@ -89,6 +94,8 @@ export default function App() {
           <Route path="/racer/stats" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><RacerStatsPage /></Suspense>} />
           <Route path="/shogi" element={<ShogiPage />} />
           <Route path="/shogi/stats" element={<ShogiStatsPage />} />
+          <Route path="/poker" element={<PokerPage />} />
+          <Route path="/poker/stats" element={<PokerStatsPage />} />
           <Route path="/monitor" element={<MonitorPage />} />
         </Routes>
       </main>
