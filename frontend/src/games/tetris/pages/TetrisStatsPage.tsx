@@ -33,7 +33,8 @@ const CONFIG: StatsConfig<Results> = {
   baselineLabel: 'ヒューリスティック',
   evalNote: 'AI 同士を戦わせた勝率と、決まった seed でひとりで遊ばせた平均（最大 300 手）',
   evalCharts: [
-    { title: '勝率 vs これまでの best', value: (e) => vs('vs_best')(e.results), format: fmt.pct },
+    // ヒューリスティック AI には「これまでの best」という相手がいないので基準線は出さない
+    { title: '勝率 vs これまでの best', value: (e) => vs('vs_best')(e.results), format: fmt.pct, noBaseline: true },
     { title: '勝率 vs ヒューリスティック', value: (e) => vs('vs_heuristic')(e.results), format: fmt.pct },
     { title: 'ひとりで消したライン数', value: (e) => solo(e.results).avg_lines ?? 0, format: fmt.n1 },
     { title: 'おじゃまありの火力', value: (e) => pressure(e.results).avg_attack ?? 0, format: fmt.n1 },
@@ -53,7 +54,7 @@ const CONFIG: StatsConfig<Results> = {
     { title: 'ε（ランダムに打つ確率）', key: 'epsilon', format: fmt.pct },
   ],
   table: [
-    { label: 'vs best', value: (e) => fmt.pct(vs('vs_best')(e.results)) },
+    { label: 'vs best', value: (e) => (e.results.vs_best ? fmt.pct(vs('vs_best')(e.results)) : '—') },
     { label: 'vs ヒューリスティック', value: (e) => fmt.pct(vs('vs_heuristic')(e.results)) },
     { label: 'ひとり: ライン', value: (e) => fmt.n1(solo(e.results).avg_lines ?? 0) },
     { label: 'ひとり: テトリス/100手', value: (e) => fmt.n1(solo(e.results).tetrises_per_100 ?? 0) },

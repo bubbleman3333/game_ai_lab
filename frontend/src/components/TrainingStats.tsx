@@ -13,6 +13,8 @@ export interface EvalChart<R> {
   value: (e: EvaluationDto<R>) => number
   format: (v: number) => string
   note?: string
+  /** 基準線を出さない（基準の AI にはその項目がない場合。例: 「vs これまでの best」の勝率） */
+  noBaseline?: boolean
 }
 
 export interface MetricChart {
@@ -136,7 +138,7 @@ export function TrainingStats<R>({ config }: { config: StatsConfig<R> }) {
             <Tile label="学習時間" value={run.status.elapsed_sec ? `${Math.round(run.status.elapsed_sec / 60)} 分` : '—'} />
             {best && config.evalCharts.slice(0, 3).map((c) => (
               <Tile key={c.title} label={`最良: ${c.title}`} value={c.format(c.value(best))}
-                    sub={baseline ? `${config.baselineLabel ?? '基準'} ${c.format(c.value(baseline))}` : undefined} />
+                    sub={baseline && !c.noBaseline ? `${config.baselineLabel ?? '基準'} ${c.format(c.value(baseline))}` : undefined} />
             ))}
           </section>
 
@@ -146,7 +148,7 @@ export function TrainingStats<R>({ config }: { config: StatsConfig<R> }) {
               <LineChartCard
                 key={c.title} title={c.title} note={c.note} xLabel={unit} x="episode" y="v" format={c.format}
                 data={evals.map((e) => ({ episode: e.episode, v: c.value(e) }))}
-                baseline={baseline ? { value: c.value(baseline), label: config.baselineLabel ?? '基準' } : null}
+                baseline={baseline && !c.noBaseline ? { value: c.value(baseline), label: config.baselineLabel ?? '基準' } : null}
               />
             ))}
           </div>
