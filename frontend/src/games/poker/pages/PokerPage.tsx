@@ -13,6 +13,13 @@ import {
   type ActionKind, type PokerAgentDto, type PokerTableDto,
 } from '../api/poker'
 
+// 選択肢は種類ごとにまとめる（学習を重ねると 10 個以上並ぶので）
+const FAMILY_GROUPS: [string, string][] = [
+  ['neural', 'ニューラルネット（Deep CFR）'],
+  ['table', '表形式の CFR（先に作った方）'],
+  ['heuristic', '比較用'],
+]
+
 const ACTION_LABELS = ['降りる', 'チェック/コール', 'ポットの0.5倍', 'ポットの1倍', 'オールイン']
 
 const AGENT_KEY = 'poker.agent'
@@ -147,12 +154,20 @@ export function PokerPage() {
         <label>
           相手の AI{' '}
           <select value={agent} onChange={(e) => setAgent(e.target.value)} disabled={busy}>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-                {a.detail ? ` / ${a.detail}` : ''}
-              </option>
-            ))}
+            {FAMILY_GROUPS.map(([family, title]) => {
+              const group = agents.filter((a) => a.family === family)
+              if (!group.length) return null
+              return (
+                <optgroup key={family} label={title}>
+                  {group.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                      {a.detail ? ` / ${a.detail}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
           </select>
         </label>
         <label>
