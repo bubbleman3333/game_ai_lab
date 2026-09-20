@@ -8,6 +8,8 @@ AI の ID:
 
 - `.pt` = **ニューラルネット（Deep CFR）**。局面をそのままベクトルにして入れるので、
   知らない場面が無く、スタックの深さも 1 つのネットでまかなう。**こちらが本命**。
+  既定は **`latest`**。CFR は「学習中の打ち方の平均」が強くなる方式なので、あとの世代ほど
+  強いのが普通で、対戦成績で選ぶ `best` はポーカーのブレに負けやすい。
 - `.npz` = 表形式の CFR（最初に作った方）。手をバケツにまとめて表に持つ。
   深さごとに別の表なので、深いところが弱かった。比較のために残してある。
 
@@ -94,7 +96,7 @@ def _detail(path: Path, family: str, mtime: float) -> str:
 
 
 def list_agents() -> list[AgentInfo]:
-    """ニューラルネットの best が先頭。最後にルールベース。"""
+    """ニューラルネットの latest が先頭。最後にルールベース（比較用）。"""
     found: list[AgentInfo] = []
     runs = _runs_dir()
     if runs.exists():
@@ -108,14 +110,26 @@ def list_agents() -> list[AgentInfo]:
                         continue
                     mtime = p.stat().st_mtime
                     tag = "ニューラルネット" if family == NEURAL else "表形式"
+                    if family == NEURAL:
+                        tag = "最新・おすすめ" if kind == "latest" else "対戦成績で選んだ版"
                     found.append(AgentInfo(
                         id=f"{run_dir.name}:{kind}",
                         label=f"{run_dir.name}（{kind}・{tag}）",
                         run=run_dir.name, kind=kind, family=family, path=p, updated_at=mtime,
                         detail=_detail(p, family, mtime),
                     ))
-    # ニューラルネット > 表形式、best > latest、新しい順
-    found.sort(key=lambda a: (a.family != NEURAL, a.kind != "best", -(a.updated_at or 0)))
+    # ニューラルネットを先に。**ニューラルネット版は latest を既定にする**。
+    # CFR は「学習中の打ち方の平均」が強くなる方式なので、あとの世代ほど強いのが普通。
+    # 一方 best は対戦成績で選ぶが、ポーカーはブレが大きく、1 万局程度の評価では
+    # 標準誤差が ±180 mbb/hand ほどある。実際、+108 と出て best になった重みを
+    # 2 万 4 千局で測り直すと -377 で、まぐれ当たりだった。
+    # 表形式版は学習が止まっているので、これまでどおり best を先に。
+    def order(a: AgentInfo) -> tuple:
+        if a.family == NEURAL:
+            return (0, a.kind != "latest", -(a.updated_at or 0))
+        return (1, a.kind != "best", -(a.updated_at or 0))
+
+    found.sort(key=order)
     found.append(AgentInfo(HEURISTIC_ID, "ルールベース（学習なし・比較用）", None, "heuristic",
                            RULE, None, None, "手札の強さで決める素朴な打ち方"))
     return found
