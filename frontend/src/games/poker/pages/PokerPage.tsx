@@ -16,7 +16,9 @@ import {
 const AGENT_KEY = 'poker.agent'
 const STACK_KEY = 'poker.stack'
 const TABLE_KEY = 'poker.table'
-const STACK_CHOICES = [40, 100, 200, 400]
+// 浅いスタックほど「降りるか突っ込むか」の勝負になり、打ち方がまったく変わる。
+// AI は深さごとに別の戦略を学んでいるので、浅いところも選べるようにしておく
+const STACK_CHOICES = [20, 40, 70, 100, 150, 200, 400]
 
 export function PokerPage() {
   const [agents, setAgents] = useState<PokerAgentDto[]>([])
