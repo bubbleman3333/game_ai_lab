@@ -15,8 +15,14 @@ from pathlib import Path
 
 from django.conf import settings
 
+import torch
+
 from apps.common.errors import NotFound
 from rl.tetris.agent import Agent, HeuristicAgent, NeuralAgent
+
+# 1 手ぶんの推論は小さい（候補手 数十 × 52 次元の MLP）ので、スレッドを増やすと
+# 分割の手間のほうが大きくなる。実測でも 1 スレッドのほうが速い（学習と同時に動かすと差が開く）。
+torch.set_num_threads(1)
 
 HEURISTIC_ID = "heuristic"
 _CHECKPOINT_KINDS = ("best", "latest")
