@@ -1,29 +1,43 @@
-# tools/video/ 動画の素材づくり
+# tools/video/ 動画を丸ごと作る
 
-学習した重みを並べて遊ばせ、**連番 PNG** にする。撮影も手編集もせず、計算だけで映像を作るためのもの。
-漢字のテロップ・字幕・音声は入れない（YMM4 側で載せたほうが後から直せるため）。ここが作るのは「絵」だけ。
-
-| ファイル | 中身 |
-|---|---|
-| `png.py` | 依存なしの PNG 書き出し（`zlib` のみ）。`Canvas` と 7 セグの数字描画 |
-| `tetris_clip.py` | テトリスの重みを並べて遊ばせ、連番 PNG にする |
-
-## 使い方
+台本（`daihon.csv`）から、ゆっくり解説の動画を **人の操作なしで** 作る。
+撮影も編集もしない。映像は学習した重みを遊ばせて計算で描き、音声は AquesTalk で合成する。
 
 ```powershell
 cd backend
-# 世代を 3 つ並べる（すぐ死ぬ頃 / T スピンを覚えた頃 / テトリスを覚えた頃）
-.\.venv\Scripts\python -m tools.video.tetris_clip `
-    --checkpoints ep_001500 ep_003250 ep_007250 --cell 24 --out tools/video/out/growth
-
-# ルールベース（人が重みを決めた AI）との比較は --checkpoints に best.pt などを指定して別途
+.\.venv\Scripts\python -m tools.video.build_video      # → tools/video/out/movie.mp4
 ```
 
-出来た PNG を mp4 にするコマンドは、実行の最後に表示される（ffmpeg が必要）。
+| ファイル | 中身 |
+|---|---|
+| `daihon.csv` | 台本。1 列目 キャラクター名 / 2 列目 セリフ（字幕） / 3 列目 読み仮名（音声） |
+| `build_video.py` | 全体の組み立て。区間割り・音声トラック・字幕・ffmpeg |
+| `tts.py` | ゆっくり音声の合成（AquesTalk1） |
+| `aqtalk.ps1` | 32bit PowerShell から AquesTalk.dll を呼ぶ。**ASCII だけで書くこと** |
+| `tetris_clip.py` | 学習した重みを並べて遊ばせ、連番 PNG にする |
+| `png.py` | 依存なしの PNG 書き出し（`zlib` のみ） |
+| `ffmpeg.py` | 連番 PNG → mp4。ffmpeg の場所探しも |
 
-## 決まりごと
-- ミノの色は `frontend/src/games/tetris/components/colors.ts` と同じにする（画面と動画で色が変わらないように）。
-- 同じ `--seed` ならツモ順が同じになる。**世代の差だけを見せたいので seed は揃える**。
-- 盤面の色は `Game` 本体が持っていないので `play()` が自前で持つ。毎手 `game.board.rows` と
-  一致するか `assert` しているので、ずれたらその場で落ちる。
+## 必要なもの
+- **ffmpeg**（`winget install ffmpeg`）
+- **YMM4 を解凍したフォルダ**。同梱の `Resources/AquesTalk` を音声合成に使う。
+  YMM4 を起動する必要はない。置き場所は `tts.py` の `YMM4_HINTS`。
+
+## つまずきやすいところ
+- `AquesTalk.dll` は **32bit**。64bit の Python からは読めないので、Windows 標準の
+  32bit PowerShell（`SysWOW64`）経由で呼ぶ。追加のインストールは要らない。
+- 読み仮名は **カタカナの音声記号列**。`、` `。` `？` `/` は使えるが、
+  **半角スペース・`・`・`ヅ`・`ヂ` は使えない**（エラー 105）。`tts.py` の `BAD_KANA` が事前に弾く。
+- `aqtalk.ps1` に日本語を書くと、Windows PowerShell 5.1 が ANSI として読んで文字化けする。
+  **テキストは UTF-8 の TSV で渡す**。
+- **台本が読み上げる数字と、映像の `max_pieces` を一致させること**。
+  `build_video.render_gameplay` の 300 手が「119 段 / 116 段、テトリス 0 回 / 15 回」にあたる。
+  ここがずれると、声と画面の数字が食い違う。
+- 区間の長さに合わせて 1 手あたりのフレーム数を逆算するので、映像は早送りにも引き伸ばしにもならない。
+- ミノの色は `frontend/src/games/tetris/components/colors.ts` と同じにする。
 - `out/` は Git に入れない（`.gitignore`）。
+
+## 直したいとき
+- セリフ → `daihon.csv`。**2 列目（字幕）と 3 列目（読み）の両方**を直す。
+- 区間の割り当て・見出し → `build_video.py` の `SECTIONS`。
+- 字幕の色や大きさ → `build_video.write_ass`。
