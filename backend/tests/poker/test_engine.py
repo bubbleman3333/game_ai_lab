@@ -107,7 +107,7 @@ def test_人間の任意額を一番近い枠に読み替える():
 def test_ランダムな手を打ち続けても必ず終わり収支は0になる():
     rnd = random.Random(7)
 
-    def policy(state, player):
+    def policy(state, player, hist):
         mask = legal_mask(state)
         return rnd.choice([i for i, ok in enumerate(mask) if ok])
 
@@ -124,12 +124,12 @@ def test_ランダムな手を打ち続けても必ず終わり収支は0にな�
 def test_連戦はどちらかが飛ぶまで続く():
     rnd = random.Random(3)
 
-    def wild(state, player):
+    def wild(state, player, hist):
         """いつでもオールインする乱暴な打ち方（必ず決着が付く）。"""
         mask = legal_mask(state)
         return IDX_ALL_IN if mask[IDX_ALL_IN] else IDX_CHECK_CALL
 
-    def timid(state, player):
+    def timid(state, player, hist):
         mask = legal_mask(state)
         return IDX_FOLD if mask[IDX_FOLD] else IDX_CHECK_CALL
 

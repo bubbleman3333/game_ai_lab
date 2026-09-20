@@ -17,7 +17,7 @@ TypeScript 版は frontend/src/games/poker/engine/rules.ts。変えたら両方�
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from .cards import cards_str, hand_value
 
@@ -37,7 +37,12 @@ RAISE = 3
 KIND_NAMES = ("フォールド", "チェック", "コール", "レイズ")
 
 # レイズ額の離散化（コールした後のポットに対する倍率）。最後に必ずオールインが付く。
-RAISE_FRACTIONS = (0.5, 1.0, 2.0)
+# **ここが AI の手の枠の数を決める唯一の場所**。rl/poker/config.py もこれを読む
+# （2 つ持つと「学習は 2 種類・画面は 3 種類」のようにずれて、学習していない手を打たせてしまう）。
+# 倍率を 1 つ増やすと情報集合が約 1.8 倍になり、同じ学習時間での詰め方が甘くなる。
+# 人間は任意の額を賭けられる（`translate()` が一番近い枠に読み替える）ので、
+# 枠を増やさなくてもノーリミットらしさは失われない。
+RAISE_FRACTIONS = (0.5, 1.0)
 
 # 手の枠（ニューラルネットの出力の並び）: 0=フォールド, 1=チェック/コール, 2..=倍率レイズ, 最後=オールイン
 IDX_FOLD = 0
@@ -67,9 +72,14 @@ class Action:
         return KIND_NAMES[self.kind]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class State:
-    """1 局の途中の状態。すべての情報を持つ（見せる情報は別に作る）。"""
+    """1 局の途中の状態。すべての情報を持つ（見せる情報は別に作る）。
+
+    学習で 1 秒に何万個も作るので `slots=True` にし、書き換えの多いところでは
+    `dataclasses.replace()` ではなく `_with()` で作る（replace は毎回すべての項目を
+    getattr で読み直すので、実測で全体の 1 割以上を食っていた）。
+    """
 
     holes: tuple[tuple[int, int], tuple[int, int]]
     full_board: tuple[int, ...]  # 5 枚。street の分だけ表に出る
@@ -98,6 +108,23 @@ class State:
 
     def is_all_in(self, p: int) -> bool:
         return self.stack_left(p) == 0
+
+    def _with(self, **kw) -> "State":
+        """項目を差し替えた新しい状態。`dataclasses.replace()` の速い版。"""
+        return State(
+            holes=kw.get("holes", self.holes),
+            full_board=kw.get("full_board", self.full_board),
+            street=kw.get("street", self.street),
+            committed=kw.get("committed", self.committed),
+            street_bet=kw.get("street_bet", self.street_bet),
+            to_act=kw.get("to_act", self.to_act),
+            acted=kw.get("acted", self.acted),
+            last_raise=kw.get("last_raise", self.last_raise),
+            folded=kw.get("folded", self.folded),
+            start_stack=kw.get("start_stack", self.start_stack),
+            button=kw.get("button", self.button),
+            finished=kw.get("finished", self.finished),
+        )
 
 
 def new_hand(
@@ -249,7 +276,7 @@ def apply_action(st: State, action: Action) -> State:
     if action.kind == FOLD:
         if to_call(st, p) == 0:
             raise ValueError("コールが要らないのにフォールドしようとした")
-        return replace(st, folded=p, finished=True, acted=(True, True))
+        return st._with(folded=p, finished=True, acted=(True, True))
 
     if action.kind == CHECK:
         if to_call(st, p) != 0:
@@ -276,8 +303,7 @@ def apply_action(st: State, action: Action) -> State:
     else:
         raise ValueError("知らない手の種類: " + str(action.kind))
 
-    nxt = replace(
-        st,
+    nxt = st._with(
         committed=(committed[0], committed[1]),
         street_bet=(street_bet[0], street_bet[1]),
         acted=(acted[0], acted[1]),
@@ -300,11 +326,10 @@ def _next_street(st: State) -> State:
     """ベットが揃った。次のストリートへ進めるか、終局にする。"""
     if st.is_all_in(0) or st.is_all_in(1):
         # どちらかが出し切っているので、残りのボードを配ってショーダウン
-        return replace(st, street=RIVER, finished=True)
+        return st._with(street=RIVER, finished=True)
     if st.street == RIVER:
-        return replace(st, finished=True)
-    return replace(
-        st,
+        return st._with(finished=True)
+    return st._with(
         street=st.street + 1,
         street_bet=(0, 0),
         acted=(False, False),
@@ -337,6 +362,17 @@ def payoff(st: State) -> tuple[int, int]:
     if winner < 0:
         return (0, 0)
     return (stake, -stake) if winner == 0 else (-stake, stake)
+
+
+def advance_history(st: State, child: State, index: int, hist: str) -> str:
+    """打った手を履歴の文字列に足す（ストリートが変わったら "/" で区切る）。
+
+    この文字列が AI の「情報集合」の鍵になる。**AI から見えてよい情報だけ**でできている
+    （誰が何をしたかの並びだけで、カードは入らない）。
+    """
+    if child.finished:
+        return hist + str(index)
+    return hist + str(index) + ("/" if child.street != st.street else "")
 
 
 def describe(st: State) -> str:

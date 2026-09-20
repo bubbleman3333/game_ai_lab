@@ -14,8 +14,8 @@ from typing import Callable, Protocol
 
 from .cards import Rng, shuffled_deck
 from .rules import (
-    BIG_BLIND, DEFAULT_STACK, RAISE_FRACTIONS, Action, State,
-    action_from_index, apply_action, legal_mask, new_hand, payoff,
+    BIG_BLIND, DEFAULT_STACK, RAISE, RAISE_FRACTIONS, Action, State, action_from_index,
+    advance_history, apply_action, legal_mask, new_hand, payoff,
 )
 
 
@@ -28,13 +28,17 @@ def deal(rng: Rng, start_stack: int = DEFAULT_STACK, button: int = 0) -> State:
 
 
 class Policy(Protocol):
-    """手を選ぶもの。打てる枠（legal_mask）の中から枠の番号を 1 つ返す。"""
+    """手を選ぶもの。打てる枠（legal_mask）の中から枠の番号を 1 つ返す。
 
-    def act(self, state: State, player: int) -> int:
+    `hist` はここまでの行動の並び（`advance_history` が作る文字列）。
+    CFR で学習した戦略は、この履歴と自分の手札で打ち方を決める。
+    """
+
+    def act(self, state: State, player: int, hist: str) -> int:
         ...
 
 
-PolicyFn = Callable[[State, int], int]
+PolicyFn = Callable[[State, int, str], int]
 
 
 @dataclass
@@ -64,6 +68,7 @@ def play_hand(
     steps: list[HandStep] = []
     raises = 0
     street = state.street
+    hist = ""
     while not state.finished:
         if state.street != street:
             street, raises = state.street, 0
@@ -71,14 +76,16 @@ def play_hand(
         mask = legal_mask(state, fractions, max_raises, raises)
         if not any(mask):
             raise RuntimeError("打てる手がないのに終局していない")
-        index = policies[p](state, p)
+        index = policies[p](state, p, hist)
         if not (0 <= index < len(mask)) or not mask[index]:
             raise ValueError("打てない枠を選んだ: " + str(index))
         action = action_from_index(state, index, fractions)
         steps.append(HandStep(player=p, street=state.street, index=index, action=action))
-        if action.kind == 3:  # RAISE
+        if action.kind == RAISE:
             raises += 1
-        state = apply_action(state, action)
+        nxt = apply_action(state, action)
+        hist = advance_history(state, nxt, index, hist)
+        state = nxt
     return HandResult(final=state, payoff=payoff(state), steps=steps)
 
 
