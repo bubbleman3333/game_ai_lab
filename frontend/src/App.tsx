@@ -1,5 +1,5 @@
 // 画面の一覧（ルーティング）。ゲームを足すときは games/<名前>/ を作り、ここと HomePage の GAMES に追加する。
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { notifyNavigation, startTelemetry } from './lib/telemetry'
 import { MonitorPage } from './pages/MonitorPage'
@@ -22,6 +22,11 @@ import { SettingsPage } from './games/tetris/pages/SettingsPage'
 import { TetrisStatsPage } from './games/tetris/pages/TetrisStatsPage'
 import { VsAiPage } from './games/tetris/pages/VsAiPage'
 import { HomePage } from './pages/HomePage'
+
+// レースは three.js を使うぶんだけ重いので、/racer を開いたときにだけ読み込む
+// （ほかのゲームの表示が遅くならないように）
+const RacerPage = lazy(() => import('./games/racer/pages/RacerPage').then((m) => ({ default: m.RacerPage })))
+const RacerStatsPage = lazy(() => import('./games/racer/pages/RacerStatsPage').then((m) => ({ default: m.RacerStatsPage })))
 
 export default function App() {
   // 利用状況（今誰が遊んでいるか）の合図。ページを移るたびにすぐ送る
@@ -48,6 +53,9 @@ export default function App() {
         <span className="nav-group">エアホッケー</span>
         <NavLink to="/airhockey" end>対戦</NavLink>
         <NavLink to="/airhockey/stats">強さ</NavLink>
+        <span className="nav-group">レース</span>
+        <NavLink to="/racer" end>走る</NavLink>
+        <NavLink to="/racer/stats">強さ</NavLink>
         <span className="nav-group">将棋</span>
         <NavLink to="/shogi" end>対局</NavLink>
         <NavLink to="/shogi/stats">強さ</NavLink>
@@ -71,6 +79,8 @@ export default function App() {
           <Route path="/othello/stats" element={<OthelloStatsPage />} />
           <Route path="/airhockey" element={<AirHockeyPage />} />
           <Route path="/airhockey/stats" element={<AirHockeyStatsPage />} />
+          <Route path="/racer" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><RacerPage /></Suspense>} />
+          <Route path="/racer/stats" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><RacerStatsPage /></Suspense>} />
           <Route path="/shogi" element={<ShogiPage />} />
           <Route path="/shogi/stats" element={<ShogiStatsPage />} />
           <Route path="/monitor" element={<MonitorPage />} />

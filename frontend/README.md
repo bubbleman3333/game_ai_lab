@@ -3,7 +3,7 @@
 ```powershell
 npm install
 npm run dev      # http://localhost:5173（/api と /ws は localhost:8000 の Django へ転送）
-npm test         # TS エンジンが Python 版と同じ結果になるか（テトリス・オセロ）
+npm test         # TS エンジンが Python 版と同じ結果になるか（テトリス・オセロ・エアホッケー・レース）
 npx tsc -b       # 型チェック
 npm run build    # dist/ に出力
 ```
@@ -33,6 +33,7 @@ src/
     sounds.ts             効果音
     api/ components/ pages/
   games/blob/             ブロブチェイン（落ち物パズル。AI なし）→ games/blob/README.md
+  games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
   styles.css              色は CSS 変数で指定（暗い配色が基本。`:root[data-theme='light']` で明るい配色）
 ```
 依存の向き: `pages → components / game / ai → api / engine`（engine は何にも依存しない）。
@@ -57,6 +58,10 @@ src/
 ## 効果音
 音声ファイルは使わず、Web Audio でその場で作っている（`src/lib/sound.ts`）。
 音色を変えたいときは `src/games/<ゲーム>/sounds.ts` だけを直す。音量・ミュートは画面右上（ブラウザに保存）。
+
+- `sound.tone()` / `sound.noise()` … 一度鳴って消える音
+- `sound.drone()` / `sound.noiseLoop()` … 止めるまで鳴り続け、音程と音量を変え続けられる音
+  （レースのエンジン音などで使う）。**使い終わったら必ず `stop()` を呼ぶこと**
 
 ## 公開するとき
 `npm run build` の `dist/` を静的ホスティングに置く。API が別ドメインなら

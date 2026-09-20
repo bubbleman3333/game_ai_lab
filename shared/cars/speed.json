@@ -1,0 +1,13 @@
+{
+  "id": "speed",
+  "name": "コメット",
+  "description": "最高速は一番。ただし曲がらないし止まらない。直線の長いコース向き。",
+  "accel": 30.0,
+  "brake": 28.0,
+  "vmax": 52.0,
+  "grip": 6.5,
+  "steer": 1.7,
+  "jump": 8.0,
+  "air_control": 5.2,
+  "drag": 0.28
+}

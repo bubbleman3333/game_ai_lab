@@ -433,3 +433,109 @@ button, select { touch-action: manipulation; }
   .blob-opponent { padding: 6px; }
   .blob-arena .placeholder { width: 60vw; height: 300px; }
 }
+
+/* --- レース（3D） ------------------------------------------------------------
+   --racer-accent はコースのテーマの色（scene/themes.ts の accent）。
+   3D の描画そのものは canvas の中なので、ここは HUD と選択画面の見た目だけ。 */
+.racer-play { position: fixed; inset: 0; background: #000; --racer-accent: #5fd07a; }
+.racer-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.racer-hud { position: absolute; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
+.racer-hud-top { position: absolute; top: 14px; left: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.racer-hud-box {
+  display: flex; flex-direction: column; gap: 2px; min-width: 86px;
+  padding: 6px 12px; border-radius: 8px; background: rgba(8, 8, 12, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12); backdrop-filter: blur(6px);
+}
+.racer-hud-label { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.08em; }
+.racer-hud-value { font-size: 1.3rem; font-weight: 700; line-height: 1.1; }
+.racer-hud-value small { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; }
+
+.racer-hud-bottom { position: absolute; right: 20px; bottom: 22px; text-align: right; }
+.racer-speed { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
+.racer-speed-value {
+  font-size: 3.6rem; font-weight: 900; line-height: 0.9;
+  color: var(--racer-accent); text-shadow: 0 0 24px rgba(0, 0, 0, 0.8);
+}
+.racer-speed-unit { font-size: 0.9rem; color: var(--text-muted); }
+.racer-boost {
+  width: 190px; height: 9px; margin-top: 8px; margin-left: auto; border-radius: 5px;
+  background: rgba(8, 8, 12, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); overflow: hidden;
+}
+.racer-boost-fill {
+  height: 100%; background: linear-gradient(90deg, var(--racer-accent), #fff);
+  transition: width 0.12s linear;
+}
+
+.racer-count {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 7rem; font-weight: 900; color: #fff; text-shadow: 0 6px 40px rgba(0, 0, 0, 0.8);
+}
+.racer-flash {
+  position: absolute; left: 50%; top: 24%; transform: translateX(-50%);
+  font-size: 1.6rem; font-weight: 800; color: var(--racer-accent);
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.9); animation: racer-pop 0.3s ease-out;
+}
+@keyframes racer-pop { from { transform: translateX(-50%) scale(0.7); opacity: 0; } }
+
+.racer-standings {
+  position: absolute; left: 16px; bottom: 22px; margin: 0; padding: 8px 12px; list-style: none;
+  border-radius: 8px; background: rgba(8, 8, 12, 0.55); border: 1px solid rgba(255, 255, 255, 0.12);
+  counter-reset: place; min-width: 190px;
+}
+.racer-standings li { display: flex; gap: 12px; justify-content: space-between; padding: 2px 0; color: var(--text-muted); }
+.racer-standings li::before { counter-increment: place; content: counter(place) '.'; margin-right: 6px; }
+.racer-standings li.me { color: var(--racer-accent); font-weight: 700; }
+.racer-standings-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.racer-quit { position: absolute; top: 14px; right: 16px; background: rgba(8, 8, 12, 0.6); }
+.racer-result {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  min-width: 300px; max-width: 92vw; text-align: center; margin: 0;
+  background: rgba(16, 16, 20, 0.94); backdrop-filter: blur(10px);
+}
+.racer-result-time { font-size: 2.4rem; font-weight: 900; margin: 4px 0 12px; color: var(--racer-accent); }
+.racer-result-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin: 0 0 16px; text-align: left; }
+.racer-result-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.racer-result-list dt { color: var(--text-muted); }
+.racer-result-list dd { margin: 0; font-weight: 700; }
+.racer-result-actions { display: flex; gap: 8px; justify-content: center; }
+.racer-result-actions .ghost { background: transparent; }
+
+.racer-touch { display: none; }
+.racer-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.racer-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left;
+  padding: 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border);
+  --racer-accent: var(--accent);
+}
+.racer-card.on { border-color: var(--racer-accent); box-shadow: 0 0 0 1px var(--racer-accent) inset; }
+.racer-card-title { font-weight: 700; font-size: 1.05rem; }
+.racer-map { width: 100%; height: 96px; color: var(--racer-accent); }
+.racer-bars { width: 100%; display: grid; gap: 3px; margin-top: 4px; }
+.racer-bar { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.racer-bar > div { height: 100%; background: var(--accent); }
+.racer-options { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.racer-start { font-size: 1.1rem; padding: 10px 28px; }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.racer-start:disabled { opacity: 0.6; cursor: default; }
+kbd {
+  font: inherit; font-size: 0.85em; padding: 1px 6px; margin: 0 1px; border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+
+/* スマホ: 画面が狭いときだけ操作ボタンを出す */
+@media (max-width: 860px), (pointer: coarse) {
+  .racer-touch {
+    display: flex; position: absolute; inset: auto 0 0 0; justify-content: space-between;
+    padding: 0 14px 18px; pointer-events: none;
+  }
+  .racer-touch > div { display: flex; gap: 10px; align-items: flex-end; pointer-events: auto; }
+  .racer-touch button {
+    width: 62px; height: 62px; border-radius: 50%; font-size: 1.1rem; font-weight: 700;
+    background: rgba(20, 20, 26, 0.6); border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+  .racer-touch button.big { width: 82px; height: 82px; border-color: var(--racer-accent); }
+  .racer-speed-value { font-size: 2.4rem; }
+  .racer-standings { display: none; }
+}

@@ -7,6 +7,7 @@
 | テトリス | `/tetris/play` ひとりで・`/tetris/vs-ai` AI と対戦・`/tetris/online` オンライン対戦・`/tetris/stats` 強さ | 「置いた後の盤面の価値」をニューラルネット（PyTorch）で学習（DQN 系） |
 | オセロ | `/othello` AI と対局・`/othello/stats` 強さ | 形ごとの点数（n-tuple）を自己対戦の TD 学習で育て、アルファベータ法で先読み |
 | エアホッケー | `/airhockey` AI と対戦・`/airhockey/stats` 強さ | 学習なし AI の模倣から始め、PPO（強化学習）で自己対戦 |
+| レース（3D） | `/racer` 走る・`/racer/stats` 強さ | 学習なしの運転者の模倣から始め、PPO（強化学習）。描画は three.js |
 | 将棋 | `/shogi` AI と対局 | 強豪 AI 同士の棋譜（floodgate）で ResNet を教師あり学習し、モンテカルロ木探索（dlshogi 方式） |
 
 ## 起動（Windows / PowerShell）
@@ -47,6 +48,7 @@ cd backend
 .\.venv\Scripts\python -m rl.tetris.train --run-name v1     # テトリス（GPU）→ backend/rl/tetris/README.md
 .\.venv\Scripts\python -m rl.othello.train --run-name v1    # オセロ（CPU 並列）→ backend/rl/othello/README.md
 .\.venv\Scripts\python -m rl.airhockey.train --run-name v1  # エアホッケー（CPU）→ backend/rl/airhockey/README.md
+.\.venv\Scripts\python -m rl.racer.train --run-name v1      # レース（CPU）→ backend/rl/racer/README.md
 .\.venv\Scripts\python -m rl.shogi.train --run-name v1      # 将棋（GPU。先に棋譜の準備が要る）→ backend/rl/shogi/README.md
 .\.venv\Scripts\python manage.py sync_runs                  # 結果を強さページに取り込む
 ```
@@ -66,6 +68,8 @@ docs/
   TETRIS_RULES.md         テトリスのルール仕様（Python 版と TS 版の共通仕様）
   OTHELLO.md              オセロのルールと AI の設計
 shared/fixtures/<ゲーム>/  Python 版と TS 版が同じ動きをするか確かめるテストデータ
+shared/courses/*.json     レースのコース（1 つ足すと画面の一覧に出る）→ frontend/src/games/racer/README.md
+shared/cars/*.json        レースの車の性能（見た目は frontend 側）
 backend/                  Django + DRF + Channels                       → backend/README.md
   games/<ゲーム>/          ルールエンジン（純粋な Python。Django に依存しない）
   rl/<ゲーム>/             学習（Django に依存しない）                    → backend/rl/<ゲーム>/README.md
@@ -75,13 +79,15 @@ backend/                  Django + DRF + Channels                       → back
   apps/tetris_online/     オンライン対戦（テトリス・ブロブチェイン共通。REST + WebSocket） → backend/apps/tetris_online/README.md
   apps/othello/           オセロの重み配信・棋譜の保存                    → backend/apps/othello/README.md
   apps/airhockey/         エアホッケーの方策の配信・試合結果              （中身は views.py の先頭のコメント）
+  apps/racer/             レースの方策の配信・走行記録                   → backend/apps/racer/README.md
   apps/shogi/             将棋の対局（ルール判定・AI の探索はサーバー）     （中身は views.py の先頭のコメント）
   apps/monitoring/        利用状況（今誰が遊んでいるか）・出来事とエラーの記録
   logs/                   ログ（Git には入れない）
   data/                   学習用データ（将棋の棋譜など。Git には入れない）
   runs/<ゲーム>/<学習名>/  学習結果（Git には入れない）
 frontend/                 React + TypeScript (Vite)                    → frontend/README.md
-  src/games/<ゲーム>/      ゲームごとの エンジン・画面・API 呼び出し（ブロブチェインは AI なし → src/games/blob/README.md）
+  src/games/<ゲーム>/      ゲームごとの エンジン・画面・API 呼び出し（ブロブチェインは AI なし → src/games/blob/README.md、
+                          レースは 3D → src/games/racer/README.md）
   src/components/         ゲーム共通の部品（強さページ・グラフ）
 ```
 

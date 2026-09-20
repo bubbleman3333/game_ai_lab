@@ -23,6 +23,20 @@ export interface NoiseOptions {
   delay?: number
 }
 
+/**
+ * 鳴らしっぱなしにする音（車のエンジン音など）。
+ * `tone` / `noise` は「一度鳴って消える音」だが、こちらは stop() を呼ぶまで鳴り続け、
+ * そのあいだ音程と音量を変え続けられる。**使い終わったら必ず stop() を呼ぶこと**。
+ */
+export interface Drone {
+  /**
+   * 音程と音量を変える。毎フレーム呼んでよい（急に変えてもプチッと鳴らないようにしてある）。
+   * noiseLoop の場合、pitch はこもり具合（ローパスフィルターの周波数）になる。
+   */
+  set(pitch: number, gain: number): void
+  stop(): void
+}
+
 export interface SoundSettings {
   volume: number // 0〜1
   muted: boolean
@@ -30,6 +44,32 @@ export interface SoundSettings {
 
 const STORAGE_KEY = 'game-ai-lab:sound'
 const DEFAULT_SETTINGS: SoundSettings = { volume: 0.6, muted: false }
+
+/** 音が出せないとき（ブラウザがまだ音を許していないなど）に返す、何もしない Drone */
+const SILENT: Drone = { set() {}, stop() {} }
+
+/** drone / noiseLoop の共通部分。音量の変え方と止め方はどちらも同じ */
+function makeDrone(ctx: AudioContext, g: GainNode,
+                   setPitch: (t: number, pitch: number) => void,
+                   stopSource: (t: number) => void): Drone {
+  let stopped = false
+  return {
+    set(pitch, gain) {
+      if (stopped) return
+      const t = ctx.currentTime
+      setPitch(t, pitch)
+      // setTargetAtTime: 目標値へじわっと近づける。毎フレーム呼んでもプチッと鳴らない
+      g.gain.setTargetAtTime(Math.max(gain, 0), t, 0.04)
+    },
+    stop() {
+      if (stopped) return
+      stopped = true
+      const t = ctx.currentTime
+      g.gain.setTargetAtTime(0, t, 0.05)
+      stopSource(t + 0.4) // 音量が下がりきってから止める
+    },
+  }
+}
 
 function loadSettings(): SoundSettings {
   try {
@@ -113,18 +153,23 @@ class SoundEngine {
     osc.stop(t + dur + 0.02)
   }
 
-  noise({ dur, gain = 0.2, filter = 2000, delay = 0 }: NoiseOptions): void {
-    if (!this.active) return
-    const ctx = this.ensure()
-    if (!ctx || !this.master) return
+  /** ざらざらした音の元（0.5 秒ぶんの乱数）。一度作ったら使い回す */
+  private buffer(ctx: AudioContext): AudioBuffer {
     if (!this.noiseBuffer) {
       this.noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate)
       const d = this.noiseBuffer.getChannelData(0)
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
     }
+    return this.noiseBuffer
+  }
+
+  noise({ dur, gain = 0.2, filter = 2000, delay = 0 }: NoiseOptions): void {
+    if (!this.active) return
+    const ctx = this.ensure()
+    if (!ctx || !this.master) return
     const t = ctx.currentTime + delay
     const src = ctx.createBufferSource()
-    src.buffer = this.noiseBuffer
+    src.buffer = this.buffer(ctx)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.value = filter
@@ -134,6 +179,44 @@ class SoundEngine {
     src.connect(lp).connect(g).connect(this.master)
     src.start(t)
     src.stop(t + dur + 0.02)
+  }
+
+  // --- 鳴らしっぱなしの音 ------------------------------------------------------
+  // 音を止めるのは stop() のときだけで、ミュートや音量は master につながっているので自動で効く。
+
+  /** 鳴らしっぱなしの音（エンジン音など）。set(周波数, 音量) で変え続ける */
+  drone({ type = 'sawtooth', filter = 1400 }: { type?: OscillatorType; filter?: number } = {}): Drone {
+    const ctx = this.ensure()
+    if (!ctx || !this.master) return SILENT
+    const osc = ctx.createOscillator()
+    osc.type = type
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.value = filter
+    const g = ctx.createGain()
+    g.gain.value = 0
+    osc.connect(lp).connect(g).connect(this.master)
+    osc.start()
+    return makeDrone(ctx, g, (t, pitch) => osc.frequency.setTargetAtTime(Math.max(pitch, 20), t, 0.03),
+                     (t) => osc.stop(t))
+  }
+
+  /** 鳴らしっぱなしのノイズ（風・タイヤの滑る音など）。set(こもり具合, 音量) で変え続ける */
+  noiseLoop(): Drone {
+    const ctx = this.ensure()
+    if (!ctx || !this.master) return SILENT
+    const src = ctx.createBufferSource()
+    src.buffer = this.buffer(ctx)
+    src.loop = true
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.value = 1000
+    const g = ctx.createGain()
+    g.gain.value = 0
+    src.connect(lp).connect(g).connect(this.master)
+    src.start()
+    return makeDrone(ctx, g, (t, pitch) => lp.frequency.setTargetAtTime(Math.max(pitch, 60), t, 0.05),
+                     (t) => src.stop(t))
   }
 
   /** 音階の周波数（A4 = 440Hz から半音 n 個上） */

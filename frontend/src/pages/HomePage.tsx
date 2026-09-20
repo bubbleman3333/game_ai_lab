@@ -37,6 +37,14 @@ const GAMES = [
     ],
   },
   {
+    title: 'レース',
+    text: '3D の周回レース。3 つのコースを大ジャンプで駆ける。AI は PPO（強化学習）で走り方を覚える',
+    links: [
+      { to: '/racer', label: '走る' },
+      { to: '/racer/stats', label: 'AI の強さ' },
+    ],
+  },
+  {
     title: '将棋',
     text: 'AI は強豪 AI 同士の対局（floodgate）から ResNet で学び、モンテカルロ木探索で読む（dlshogi 方式）',
     links: [

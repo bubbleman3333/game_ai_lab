@@ -9,12 +9,14 @@
    - テトリスの学習 → `backend/rl/tetris/README.md`
    - オセロ（ルール・AI の設計）→ `docs/OTHELLO.md`、学習 → `backend/rl/othello/README.md`
    - エアホッケー → `backend/rl/airhockey/README.md`（物理は `backend/games/airhockey/physics.py` と TS 版）
+   - レース（3D）→ `frontend/src/games/racer/README.md`（コースの足し方もここ）、学習 → `backend/rl/racer/README.md`
    - 将棋 → `backend/rl/shogi/README.md`、対局 API → `backend/apps/shogi/views.py` の先頭
    - 学習結果の API・強さページ → `backend/apps/training/README.md`
    - テトリス AI の API → `backend/apps/tetris_ai/README.md`
    - オンライン対戦（テトリス・ブロブチェイン共通）→ `backend/apps/tetris_online/README.md`
    - ブロブチェイン（落ち物パズル。AI なし・ブラウザだけで動く）→ `frontend/src/games/blob/README.md`
    - オセロの API → `backend/apps/othello/README.md`
+   - レースの API → `backend/apps/racer/README.md`
    - 画面 → `frontend/README.md`
 
 ## 守ること
@@ -29,6 +31,15 @@
   `frontend/src/api/online/protocol.ts` の両方を直す（テトリスとブロブチェインで共通）。
 - SQLite は WAL + `transaction_mode: IMMEDIATE`（`config/settings.py`）。外すと同時アクセスで "database is locked" が出る。
 - エアホッケーの物理（`physics.py` と `physics.ts`）を変えたら `python -m games.airhockey.fixtures` で作り直す。
+- レースの物理・コースの組み立て（`games/racer/` と `frontend/src/games/racer/engine/`）を変えたら
+  `python -m games.racer.fixtures` で作り直す。観測の形を変えたら `rl/racer/policy.py` の `POLICY_VERSION` を上げる。
+- レースのコースと車は `shared/courses/*.json` と `shared/cars/*.json`。**JSON を 1 つ置くだけで画面に出る**
+  （道も景色も中心線から自動で作られる）。車の見た目だけは `frontend/src/games/racer/scene/carDesigns.ts`。
+- レースの 3D は three.js を直接使う。物理エンジン（rapier 等）は入れない。Python 版と計算が一致しなくなるため。
+- **レースの「右」はワールドの −x**（運転者から見た右 = `(-cos yaw, 0, sin yaw)`、右へ曲がると yaw は減る）。
+  右手系で上が +y・前が +z だとこうなる。+x を右と書くと、右に切ったのに画面では左へ曲がる。
+  詳しくは `frontend/src/games/racer/README.md` の「向きの決まり」。
+- 鳴らしっぱなしの音（エンジン音など）は `sound.drone()` / `sound.noiseLoop()`。**必ず `stop()` で止める**。
 - 公開中（Cloudflare トンネル + `vite preview`）は、画面を直したら `cd frontend; npx vite build` で反映する。
 - Django の開発サーバーはファイルを保存すると自動で再起動する。**新しいアプリは、ファイルを全部作ってから settings / urls に登録する**
   （先に登録すると再起動に失敗して止まる）。

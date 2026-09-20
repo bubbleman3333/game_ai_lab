@@ -1,0 +1,13 @@
+{
+  "id": "balanced",
+  "name": "ルナ",
+  "description": "素直に曲がって素直に止まる。迷ったらこれ。",
+  "accel": 26.0,
+  "brake": 34.0,
+  "vmax": 44.0,
+  "grip": 9.0,
+  "steer": 2.1,
+  "jump": 9.0,
+  "air_control": 5.8,
+  "drag": 0.35
+}

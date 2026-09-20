@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "apps.tetris_online",
     "apps.othello",
     "apps.airhockey",
+    "apps.racer",
     "apps.shogi",
     "apps.monitoring",
 ]
