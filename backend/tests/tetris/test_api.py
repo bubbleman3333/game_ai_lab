@@ -159,3 +159,25 @@ def test_default_agent_falls_back_when_every_run_is_young(tmp_path, settings):
     settings.TRAINING_RUNS_DIR = tmp_path
     _make_run(tmp_path, "young", 10)
     assert agent_registry.default_agent_id() == "young:best"
+
+
+def test_default_agent_can_be_pinned(tmp_path, settings):
+    """どの重みが強いかは自動では分からないので、総当たりで確かめた結果を指定できる。"""
+    from apps.tetris_ai import agent_registry
+
+    settings.TRAINING_RUNS_DIR = tmp_path
+    _make_run(tmp_path, "weaker-but-newer", 30_000)
+    _make_run(tmp_path, "stronger", 8_000)
+    (tmp_path / "tetris" / "default_agent.txt").write_text("stronger:best", encoding="utf-8")
+
+    assert agent_registry.default_agent_id() == "stronger:best"
+
+
+def test_a_pin_that_no_longer_exists_is_ignored(tmp_path, settings):
+    from apps.tetris_ai import agent_registry
+
+    settings.TRAINING_RUNS_DIR = tmp_path
+    _make_run(tmp_path, "only-run", 8_000)
+    (tmp_path / "tetris" / "default_agent.txt").write_text("deleted-run:best", encoding="utf-8")
+
+    assert agent_registry.default_agent_id() == "only-run:best"

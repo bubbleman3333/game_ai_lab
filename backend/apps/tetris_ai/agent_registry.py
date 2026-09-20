@@ -72,13 +72,30 @@ def _run_episodes(run: str | None) -> int:
         return 0
 
 
-def default_agent_id() -> str:
-    """既定の AI。
+def pinned_agent_id() -> str | None:
+    """`runs/tetris/default_agent.txt` で既定の AI を指定できる（1 行に AI の ID）。
 
-    「いちばん新しい best」を選ぶと、学習を始めたばかりの run（ほぼランダム）を掴んでしまう。
-    2 つ以上の学習を同時に回すと実際にそうなったので、ある程度進んだ run を優先する。
+    どの重みが強いかは、エピソード数でもファイルの新しさでも決まらない（実際、35,750 エピソードの
+    `trial` より 7,630 エピソードの `v3-selfplay` のほうが強かった）。総当たりで確かめた結果を
+    ここに書いておく。`runs/` は .gitignore なので、この指定は PC ごとの設定になる。
+    """
+    path = _runs_dir() / "default_agent.txt"
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def default_agent_id() -> str:
+    """既定の AI。指定があればそれ、なければ「ある程度学習が進んだ中でいちばん新しい best」。
+
+    自動で選ぶほうは、学習を始めたばかりの run（ほぼランダム）を掴まないようにしてあるだけで、
+    強さは見ていない。強いものを出したいなら `default_agent.txt` で指定すること。
     """
     agents = list_agents()
+    pinned = pinned_agent_id()
+    if pinned and any(a.id == pinned for a in agents):
+        return pinned
     grown = [a for a in agents if a.kind == "best" and _run_episodes(a.run) >= MIN_DEFAULT_EPISODES]
     return (grown or agents)[0].id
 
