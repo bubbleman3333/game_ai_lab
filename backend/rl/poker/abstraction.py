@@ -78,10 +78,14 @@ def _probe_values(board: tuple[int, ...]) -> np.ndarray:
     return values
 
 
-def relative_strength(hole: tuple[int, int], board: tuple[int, ...]) -> float:
-    """このボードで、相手が持ちうる手のうちどれだけに勝っているか（0〜1）。"""
+def relative_strength(hole: tuple[int, int], board: tuple[int, ...], value: int | None = None) -> float:
+    """このボードで、相手が持ちうる手のうちどれだけに勝っているか（0〜1）。
+
+    `value` に `hand_value(hole + board)` を渡せば、その計算を省ける（呼び出し側で
+    役のカテゴリにも使うときに効く）。
+    """
     probes = _probe_values(tuple(board))
-    v = hand_value(tuple(hole) + tuple(board))
+    v = hand_value(tuple(hole) + tuple(board)) if value is None else value
     return float(np.searchsorted(probes, v, side="left")) / len(probes)
 
 

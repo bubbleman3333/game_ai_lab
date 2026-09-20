@@ -30,10 +30,14 @@
 - `games/` と `rl/` は Django に依存させない（学習を Django なしで回すため）。
 - ブロブチェインの AI は報酬だけ変えた 2 種類（`versus` 対戦型 / `chain` 連鎖オンリー）。
   `rl/blob/config.py` の `REWARD_PRESETS` と `STYLE_DEFAULTS`。**どちらかに寄せず、両方残すこと**。
-- テトリスの特徴量（`rl/tetris/encoding.py`）とブロブチェインの特徴量（`rl/blob/encoding.py`）を変えたら
-  `FEATURE_VERSION`、オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION`、
-  ポーカーのまとめ方（`rl/poker/config.py`）を変えたら `ABSTRACTION_VERSION` を上げる。
+- テトリスの特徴量（`rl/tetris/encoding.py`）とブロブチェインの特徴量（`rl/blob/encoding.py`）、
+  ポーカーの特徴量（`rl/poker/encoding.py`）を変えたら `FEATURE_VERSION`、
+  オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION`、
+  ポーカーのベット額の枠など（`rl/poker/config.py`）を変えたら `ABSTRACTION_VERSION` を上げる。
   古い重み・戦略は使えなくなる。
+- **ポーカーの AI 本体はニューラルネット（Deep CFR、`rl/poker/train_deep.py`）**。
+  表形式の CFR（`rl/poker/train.py`）は先に作ったもので、深いスタックが弱いため比較用に残してある。
+  ルールベース（`rl/poker/players.heuristic`）は**比較の基準**であって AI ではない。
 - **ポーカーだけ TS 版のルールが無い**。相手の手札が見えないゲームなので、局面をブラウザに渡すと
   AI の手札まで渡ってしまう。進行はすべてサーバー（`apps/poker`）で行い、画面には
   「その人に見せていいもの」だけを返す。だから `games/poker/` に fixtures も無い。
@@ -65,7 +69,7 @@ cd backend; .\.venv\Scripts\python -m pytest
 cd backend; .\.venv\Scripts\python -m rl.tetris.train --run-name <名前> [--workers 0 でデバッグ]
 cd backend; .\.venv\Scripts\python -m rl.blob.train --run-name <名前> --reward-preset <versus|chain>
 cd backend; .\.venv\Scripts\python -m rl.othello.train --run-name <名前> [--workers 0 でデバッグ]
-cd backend; .\.venv\Scripts\python -m rl.poker.train --run-name <名前> --depth <0〜5>  # 深さごとに別プロセスで回せる
+cd backend; .\.venv\Scripts\python -m rl.poker.train_deep --run-name <名前>  # ポーカー（Deep CFR）
 cd backend; .\.venv\Scripts\python manage.py sync_runs
 cd frontend; npm test; npx tsc -b
 ```

@@ -170,6 +170,39 @@ def strategy_player(strategy: Strategy, seed: int = 0, purify: float = 0.0,
     return act
 
 
+def neural_player(net, seed: int = 0, purify: float = 0.0, advantage: bool = False):
+    """ニューラルネット（Deep CFR）で打つ。
+
+    既定は **strategy ネット**（平均戦略）を使う。これが CFR で強くなる方の戦略。
+    `advantage=True` にすると advantage ネットの後悔マッチングで打つ（学習途中の見物用）。
+
+    表形式と違って「知らない場面」が存在しないので、ルールベースの穴埋めは要らない。
+    """
+    from .encoding import features
+    from .model import masked_softmax, regret_match
+
+    rng = random.Random(seed)
+
+    def act(st: State, player: int, hist: str) -> int:
+        mask = legal_mask(st, _FRACTIONS, _MAX_RAISES, street_raises(hist))
+        out = net(features(st, player, hist))
+        probs = regret_match(out, mask) if advantage else masked_softmax(out, mask)
+        if purify > 0.0:
+            kept = [p if p >= purify else 0.0 for p in probs]
+            if sum(kept) > 0:
+                probs = kept
+        total = sum(probs)
+        roll = rng.random() * total
+        acc = 0.0
+        for i, p in enumerate(probs):
+            acc += p
+            if roll < acc and mask[i]:
+                return i
+        return max(range(len(probs)), key=lambda i: probs[i] if mask[i] else -1.0)
+
+    return act
+
+
 #: 名前で呼べる相手役（評価と API で使う）
 BASELINES = {
     "random": lambda seed=0: random_player(seed),

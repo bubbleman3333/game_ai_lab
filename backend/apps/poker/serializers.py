@@ -32,7 +32,8 @@ class AgentSerializer(serializers.Serializer):
     label = serializers.CharField()
     run = serializers.CharField(allow_null=True)
     kind = serializers.CharField()
-    infosets = serializers.IntegerField(allow_null=True, required=False)
+    family = serializers.CharField()  # neural / table / heuristic
+    detail = serializers.CharField(allow_blank=True)
 
 
 def _cards(values) -> list[str]:
