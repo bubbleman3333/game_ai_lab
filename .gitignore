@@ -21,3 +21,4 @@ backend/logs/
 backend/.monitor_token
 # 学習の実行ログ
 backend/*.log
+backend/*.pid

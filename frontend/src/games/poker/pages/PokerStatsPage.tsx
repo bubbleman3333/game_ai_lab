@@ -22,7 +22,9 @@ const CONFIG: StatsConfig<Results> = {
   evalNote:
     '基準の相手との対戦成績。同じカードを配って席を入れ替えて 2 回打つ（ミラー方式）ので、'
     + 'カードの運が打ち消し合って少ない局数でも差が見える。単位の mbb/hand は'
-    + '「1 局あたり、ビッグブラインドの 1/1000 が何個か」。+50 でかなり勝っている。',
+    + '「1 局あたり、ビッグブラインドの 1/1000 が何個か」。+50 でかなり勝っている。'
+    + 'なお「一番よい重み」の判定にはルールベース相手の成績だけを使う'
+    + '（でたらめ相手の成績は青天井に伸びるので、手強い相手への強さが埋もれるため）。',
   evalCharts: [
     {
       title: 'ルールベース相手（かたい）',
@@ -49,10 +51,13 @@ const CONFIG: StatsConfig<Results> = {
       noBaseline: true,
     },
   ],
+  // ニューラルネット版（n*）と表形式版（v1-*）で記録している項目が違う。
+  // 無い項目のグラフは「まだデータがありません」になるだけなので、両方並べておく
   metricCharts: [
-    { title: '覚えた場面の数', key: 'infosets', stat: 'max', format: fmt.n0, note: '情報集合の数。増え方が緩やかになれば行き渡ってきた' },
-    { title: '後悔の大きさ', key: 'avg_regret', format: fmt.n3, note: '落ち着いてくると戦略が固まってきている' },
-    { title: '1 秒あたりの走査数', key: 'rate', format: fmt.n0 },
+    { title: '後悔の予想の誤差', key: 'adv_loss', format: fmt.n3, note: 'ニューラルネット版。下がるほど「どの手が得か」を言い当てられている' },
+    { title: '貯めた学習データ', key: 'strategy_samples', stat: 'max', format: fmt.n0, note: 'ニューラルネット版。上限まで貯まると、以降は全反復から均等に入れ替わる' },
+    { title: '覚えた場面の数', key: 'infosets', stat: 'max', format: fmt.n0, note: '表形式版のみ。情報集合の数' },
+    { title: '1 秒あたりの対局数', key: 'rate', format: fmt.n0 },
   ],
   table: [
     { label: 'vs ルールベース', value: (e) => fmt.n0(e.results.vs_heuristic?.mbb_per_hand ?? 0) + ' mbb' },

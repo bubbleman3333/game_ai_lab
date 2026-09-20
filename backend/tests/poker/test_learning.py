@@ -7,7 +7,7 @@ import random
 import pytest
 
 from games.poker.cards import Rng, parse_cards
-from rl.poker import abstraction, config, evaluate, mccfr, players
+from rl.poker import abstraction, config, evaluate, exploit, mccfr, players
 
 def test_プリフロップは169通りに分かれる():
     seen = set()
@@ -152,3 +152,26 @@ def test_スタックの深さは近いものに割り当てられる():
         best = min(range(len(depths)), key=lambda i: abs(depths[i] - stack / 2))
         assert picked == best
     assert config.depth_bucket(10_000) == len(depths) - 1, "学習した中で一番深いものに寄せる"
+
+
+def test_搾取する相手役は弱い相手から大きく取れる():
+    """「この AI はどれだけ食い物にできるか」を測る道具が、ちゃんと食い物にできること。
+
+    いつも降りる相手なら、こちらは毎回攻めるだけで確実に取れる。ここで取れないなら
+    道具が壊れている（＝AI が強そうに見えても信用できない）。
+    """
+    out = exploit.measure(players.folder(), iterations=400, hands=600,
+                          stack=100 * 2, seed=3)
+    assert out["exploited_mbb_per_hand"] > 300, f"弱い相手から取れていない: {out}"
+    assert out["infosets"] > 0
+
+
+def test_AIの指定はファイルでも名前でもよい():
+    policy = exploit._load_policy("heuristic")
+    from games.poker.game import deal, play_hand
+    from games.poker.cards import Rng
+
+    st = deal(Rng(1), start_stack=200, button=0)
+    result = play_hand(st, (policy, policy), config.RAISE_FRACTIONS,
+                       config.MAX_RAISES_PER_STREET)
+    assert sum(result.payoff) == 0
