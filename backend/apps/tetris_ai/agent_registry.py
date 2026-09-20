@@ -8,6 +8,7 @@ AI の ID:
 
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,9 @@ from rl.tetris.agent import Agent, HeuristicAgent, NeuralAgent
 
 HEURISTIC_ID = "heuristic"
 _CHECKPOINT_KINDS = ("best", "latest")
+# 既定の AI に選ぶための最低エピソード数。学習を始めたばかりの run は best.pt がいちばん新しくなるが、
+# 中身はほぼランダムなので、これを下回る run は既定にしない（選べば使える）。
+MIN_DEFAULT_EPISODES = 3000
 
 
 @dataclass(frozen=True)
@@ -51,8 +55,26 @@ def list_agents() -> list[AgentInfo]:
     return found
 
 
+def _run_episodes(run: str | None) -> int:
+    """その学習が何エピソードまで進んでいるか（status.json。読めなければ 0）。"""
+    if not run:
+        return 0
+    try:
+        status = json.loads((_runs_dir() / run / "status.json").read_text(encoding="utf-8"))
+        return int(status.get("episode", 0))
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
 def default_agent_id() -> str:
-    return list_agents()[0].id
+    """既定の AI。
+
+    「いちばん新しい best」を選ぶと、学習を始めたばかりの run（ほぼランダム）を掴んでしまう。
+    2 つ以上の学習を同時に回すと実際にそうなったので、ある程度進んだ run を優先する。
+    """
+    agents = list_agents()
+    grown = [a for a in agents if a.kind == "best" and _run_episodes(a.run) >= MIN_DEFAULT_EPISODES]
+    return (grown or agents)[0].id
 
 
 _cache: dict[str, tuple[float, Agent]] = {}

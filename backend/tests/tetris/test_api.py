@@ -124,3 +124,38 @@ async def test_online_match_flow():
     assert (await recv_until(a, "end"))["winner_slot"] == 0
     await a.disconnect()
     await b.disconnect()
+
+
+def _make_run(root, name: str, episode: int) -> None:
+    """runs/tetris/<name>/ に best.pt と status.json だけ置く（中身は読まれない）。"""
+    import json
+
+    from rl.tetris.model import ValueNet, save_checkpoint
+
+    d = root / "tetris" / name
+    (d / "checkpoints").mkdir(parents=True)
+    save_checkpoint(d / "checkpoints" / "best.pt", ValueNet(hidden=8, layers=1), {"episode": episode})
+    (d / "status.json").write_text(json.dumps({"run_name": name, "episode": episode}), encoding="utf-8")
+
+
+def test_default_agent_skips_a_run_that_just_started(tmp_path, settings):
+    """学習を 2 つ同時に回すと、始めたばかりの run の best.pt がいちばん新しくなる。
+
+    それを既定にすると、ほぼランダムな AI と対戦することになってしまう。
+    """
+    from apps.tetris_ai import agent_registry
+
+    settings.TRAINING_RUNS_DIR = tmp_path
+    _make_run(tmp_path, "old-and-strong", 30_000)
+    _make_run(tmp_path, "just-started", 500)  # こちらのほうがファイルは新しい
+
+    assert agent_registry.list_agents()[0].id == "just-started:best"  # 一覧は新しい順のまま
+    assert agent_registry.default_agent_id() == "old-and-strong:best"
+
+
+def test_default_agent_falls_back_when_every_run_is_young(tmp_path, settings):
+    from apps.tetris_ai import agent_registry
+
+    settings.TRAINING_RUNS_DIR = tmp_path
+    _make_run(tmp_path, "young", 10)
+    assert agent_registry.default_agent_id() == "young:best"

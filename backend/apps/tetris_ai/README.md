@@ -9,6 +9,10 @@
 | `services.py` | Service | `choose_move()`（手を選ぶ） |
 | `agent_registry.py` | | AI の ID ↔ 重みファイル（`runs/tetris/<run>/checkpoints/*.pt`）。読み込んだ AI をキャッシュ |
 
+既定の AI（`agent` を省略したとき）は「いちばん新しい `best.pt`」だが、**`MIN_DEFAULT_EPISODES`
+（3000）に満たない学習は選ばない**。学習を 2 つ同時に回すと、始めたばかりの run の `best.pt` が
+いちばん新しくなり、ほぼランダムな AI と対戦することになるため。ID を指定すれば使える。
+
 AI の先読みの深さは `config/settings.py` の `TETRIS_AI_LOOKAHEAD`（既定 5 = NEXT を 5 個先まで読む。1 手 0.2〜0.3 秒ほど。
 0 にすると先読みなし）。画面の NEXT が 5 個なので、5 より大きくしても手は変わらない。
 中身は [rl/tetris/README.md](../../rl/tetris/README.md) の「対局での先読み」。
