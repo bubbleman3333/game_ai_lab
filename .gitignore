@@ -14,8 +14,8 @@ frontend/dist/
 .vscode/
 # 学習用のデータ（将棋の棋譜など。大きいので Git に入れない）
 backend/data/
-# 公開用のツール（cloudflared など）
-tools/
+# 公開用のツール（cloudflared など）。ルート直下だけ（backend/tools/ は Git に入れる）
+/tools/
 # ログと監視ページの合言葉（Git に入れない）
 backend/logs/
 backend/.monitor_token
