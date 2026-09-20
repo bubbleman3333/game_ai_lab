@@ -41,6 +41,10 @@ class TrainConfig:
     checkpoint_every: int = 250  # 何エピソードごとに保存するか
     eval_every: int = 250  # 何エピソードごとに評価するか（0 で評価しない）
     eval_games: int = 10
+    # 評価での対戦（match.py）。ヒューリスティック AI と「今の best.pt」の 2 人が相手。
+    versus_games: int = 6  # 相手ごとの対戦数（打つ順番を入れ替えるので偶数にする）
+    versus_max_pieces: int = 300  # 1 局の打ち切り。どちらも生き残ったら引き分け
+    promote_win_rate: float = 0.55  # 今の best.pt にこの勝率以上で勝ったら best.pt を差し替える
     seed: int = 0
     device: str = "auto"  # auto / cuda / cpu
     reward: RewardConfig = None  # type: ignore[assignment]

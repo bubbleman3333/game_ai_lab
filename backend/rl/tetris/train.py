@@ -40,7 +40,7 @@ import torch
 import torch.multiprocessing as mp
 from torch import nn
 
-from .agent import NeuralAgent, reward_of
+from .agent import HeuristicAgent, NeuralAgent, reward_of
 from .config import RewardConfig, TrainConfig
 from .encoding import FEATURE_DIM, FEATURE_NAMES, encode_many
 from .env import TetrisEnv
@@ -191,6 +191,8 @@ class Trainer:
         self.step = 0  # 受け取った経験の数
         self.updates = 0
         self.best = float("-inf")
+        # best.pt の重みを固定したもの。評価のたびにこれと対戦し、勝ち越したら best.pt を差し替える
+        self.best_agent: NeuralAgent | None = None
         self.last_loss: float | None = None
         if resume and (self.dir / "checkpoints" / "latest.pt").exists():
             model, meta = load_checkpoint(self.dir / "checkpoints" / "latest.pt", self.device)
@@ -198,6 +200,9 @@ class Trainer:
             self.episode, self.step = meta.get("episode", 0), meta.get("step", 0)
             self.best = meta.get("best", float("-inf"))
             print(f"resume from episode {self.episode}（リプレイバッファは空から）")
+        if (self.dir / "checkpoints" / "best.pt").exists():
+            best_model, _ = load_checkpoint(self.dir / "checkpoints" / "best.pt", self.device)
+            self.best_agent = NeuralAgent(best_model, cfg.gamma, cfg.reward, self.device, name="best")
         self.target.load_state_dict(self.model.state_dict())
         self._pending_updates = 0.0
         self._started = time.time()
@@ -271,24 +276,43 @@ class Trainer:
             return
         agent = NeuralAgent(self.model, self.cfg.gamma, self.cfg.reward, self.device)
         t = time.time()
-        res = evaluate(agent, self.cfg.eval_games)
+        opponents: dict = {"heuristic": HeuristicAgent()}
+        if self.best_agent is not None:
+            opponents["best"] = self.best_agent
+        res = evaluate(agent, self.cfg.eval_games, versus=opponents,
+                       versus_games=self.cfg.versus_games, versus_max_pieces=self.cfg.versus_max_pieces)
         score = strength_score(res)
-        is_best = score > self.best
+        is_best = self._promote_if_stronger(res, ckpt_dir)
         if is_best:
             self.best = score
-            save_checkpoint(ckpt_dir / "best.pt", self.model, self._meta())
         row = {
             "episode": self.episode, "step": self.step, "checkpoint": name, "score": score,
             "is_best": is_best, "results": res, "eval_sec": round(time.time() - t, 1), "at": _now(),
         }
         with open(self.dir / "evals.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
-        solo, pressure = res.get("solo", {}), res.get("pressure", {})
+        vs_best = res.get("vs_best")
+        best_part = f"vs best={vs_best['win_rate']:.0%} " if vs_best else ""
         print(
-            f"  [eval] ep={self.episode} score={score:.2f} (best {self.best:.2f}) "
-            f"solo lines={solo.get('avg_lines', 0):.1f} pressure attack={pressure.get('avg_attack', 0):.1f} "
-            f"survival={pressure.get('survival_rate', 0):.0%}"
+            f"  [eval] ep={self.episode} score={score:.1f} "
+            f"vs heuristic={res['vs_heuristic']['win_rate']:.0%} {best_part}"
+            f"pressure attack={res.get('pressure', {}).get('avg_attack', 0):.1f}"
+            f"{' → best 更新' if is_best else ''}"
         )
+
+    def _promote_if_stronger(self, res: dict, ckpt_dir: Path) -> bool:
+        """今の best.pt と対戦して勝ち越していたら best.pt を差し替える（勝った方が次の相手になる）。
+
+        「火力の平均が過去最高なら best」という選び方だと、打ち切りの手数で頭打ちになったあとは
+        運で決まってしまう。勝ち越したときだけ差し替えることで、少しずつ強い相手と戦い続けられる。
+        """
+        if self.best_agent is not None and res["vs_best"]["win_rate"] < self.cfg.promote_win_rate:
+            return False
+        save_checkpoint(ckpt_dir / "best.pt", self.model, self._meta())
+        frozen = ValueNet(FEATURE_DIM, self.cfg.hidden, self.cfg.layers).to(self.device)
+        frozen.load_state_dict(self.model.state_dict())
+        self.best_agent = NeuralAgent(frozen, self.cfg.gamma, self.cfg.reward, self.device, name="best")
+        return True
 
     # --- 実行 -----------------------------------------------------------------
     def train(self) -> None:

@@ -116,9 +116,10 @@ TRAINING_RUNS_DIR = Path(os.environ.get("TRAINING_RUNS_DIR", BASE_DIR / "runs"))
 TRAINING_ALLOW_SYNC_API = _env_bool("TRAINING_ALLOW_SYNC_API", DEBUG)
 # テトリス AI の手を API で計算するデバイス。1 手ずつの推論は CPU で十分速い
 TETRIS_AI_DEVICE = os.environ.get("TETRIS_AI_DEVICE", "cpu")
-# テトリス AI の先読み（NEXT を何個先まで読むか。0 なら今のミノだけ）。4 で 1 手 0.2 秒ほど。深いほど強い
+# テトリス AI の先読み（NEXT を何個先まで読むか。0 なら今のミノだけ）。1 手 0.2〜0.3 秒ほど。
+# 画面に出る NEXT が 5 個なので、5 より大きくしても読む先がなく、手はまったく変わらない
 # （rl/tetris/README.md の「対局での先読み」）。サーバーが重いときは下げる
-TETRIS_AI_LOOKAHEAD = int(os.environ.get("TETRIS_AI_LOOKAHEAD", "4"))
+TETRIS_AI_LOOKAHEAD = int(os.environ.get("TETRIS_AI_LOOKAHEAD", "5"))
 # ブロブチェイン AI（apps/blob_ai）。先読みは画面に出ている NEXT の数ぶん（2）まで意味がある。
 # 2 で 1 手 0.1 秒ほど。0 にすると先読みなしで、そのぶん弱いが速い
 BLOB_AI_DEVICE = os.environ.get("BLOB_AI_DEVICE", "cpu")
