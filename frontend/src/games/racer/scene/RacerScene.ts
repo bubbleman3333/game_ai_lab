@@ -21,6 +21,11 @@ import type { Theme } from './themes'
 const CAM_BACK = 9.4 // 車の後ろ何 m から見るか
 const CAM_UP = 3.5
 const CAM_LOOK = 16 // 車の何 m 先を見るか
+// コーナーでは、車の正面ではなく「この先の道」のほうへ視線を寄せる。
+// そうしないと、曲がっている最中に行き先が画面の外に出てしまい、車を置きにくい
+const CAM_AHEAD = 34 // 中心線の何 m 先を見るか
+const CAM_TRACK = 0.5 // 視線をどれだけ道のほうへ寄せるか（0 = 車の正面だけ）
+const CAM_SHIFT_MAX = 9 // 寄せてよい距離の上限（m）。これが無いと、道から外れたとき車が画面の外へ出る
 const CAM_SMOOTH = 7.5 // カメラの追従の速さ（大きいほどきびきび動く）
 const FOV_BASE = 62
 const FOV_GAIN = 18 // 最高速のときに画角をどれだけ広げるか
@@ -183,7 +188,22 @@ export class RacerScene {
       const fx = Math.sin(s.yaw), fz = Math.cos(s.yaw)
       const speed = Math.hypot(s.vx, s.vz)
       const wantPos = this.tmp.set(s.x - fx * CAM_BACK, s.y + CAM_UP, s.z - fz * CAM_BACK)
-      const wantAim = new THREE.Vector3(s.x + fx * CAM_LOOK, s.y + 1.4, s.z + fz * CAM_LOOK)
+      // 車の正面から、この先の中心線のほうへ少しだけ視線を寄せる（コーナーの出口が見えるように）。
+      // 寄せる距離には上限をかける。上限が無いと、道から外れたときに視線が道へ引っ張られて、
+      // 肝心の車が画面の外へ出てしまう
+      const c = this.course
+      const j = CO.mod(Math.trunc(s.seg) + Math.round(CAM_AHEAD / c.spacing), c.n)
+      const aheadX = s.x + fx * CAM_LOOK
+      const aheadZ = s.z + fz * CAM_LOOK
+      let offX = c.x[j] - aheadX
+      let offZ = c.z[j] - aheadZ
+      const offLen = Math.hypot(offX, offZ)
+      if (offLen > CAM_SHIFT_MAX) {
+        offX *= CAM_SHIFT_MAX / offLen
+        offZ *= CAM_SHIFT_MAX / offLen
+      }
+      const wantAim = new THREE.Vector3(
+        aheadX + offX * CAM_TRACK, s.y + 1.4, aheadZ + offZ * CAM_TRACK)
       if (!this.started) {
         this.camPos.copy(wantPos)
         this.camAim.copy(wantAim)

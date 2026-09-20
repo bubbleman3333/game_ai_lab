@@ -18,7 +18,12 @@ export const DT = 1 / 60
 export const GRAVITY = 26.0
 const GAP_DROP = 200.0
 
-const STEER_REF = 9.0
+const STEER_REF = 3.0
+// 横方向にどれだけ踏ん張れるか（m/s²）。速いほど曲がれる角速度がこれで頭打ちになる
+const LAT_BASE = 12.0
+const LAT_PER_GRIP = 0.9
+const BRAKE_SLIDE = 0.55 // ブレーキ中の横グリップの倍率
+const ALIGN = 1.0 // 滑っているとき、車の向きが進行方向へ戻る速さ（1/秒）
 const REVERSE_MAX = 9.0
 export const BOOST_TIME = 1.8
 const BOOST_ACCEL = 26.0
@@ -164,11 +169,17 @@ export function step(s: State, car: Car, c: CO.Course,
   const boosting = s.boost > 0
   s.boost = Math.max(0, s.boost - DT)
 
-  // --- 向きを変える（接地中は前輪で曲がり、空中は機体ごと回る）---
+  // --- 向きを変える ---
+  // 接地中は前輪で曲がるが、「曲がれる速さ」はグリップで頭打ちになる
+  // （速いほど、同じ角速度で曲がるのに必要な横方向の加速度が大きくなるため）
+  const latAccel = (LAT_BASE + LAT_PER_GRIP * car.grip) * gripMul
+  const maxTurn = latAccel / Math.max(Math.abs(vlong), 1)
   const speedRef = clamp(Math.abs(vlong) / STEER_REF, 0, 1)
-  const turnGround = st * car.steer * speedRef * (vlong < 0 ? -1 : 1) * Math.min(gripMul, 1)
+  const turnGround = st * Math.min(car.steer, maxTurn) * speedRef * (vlong < 0 ? -1 : 1)
   const turn = grounded ? turnGround : st * car.air_control
-  s.yaw -= turn * DT
+  // 滑っているあいだは、車の向きがじわっと進行方向へ戻る（立て直しやすくする）
+  const align = grounded ? ALIGN * Math.atan2(vlat, Math.max(Math.abs(vlong), 1)) : 0
+  s.yaw -= (turn + align) * DT
   if (!grounded) s.spin -= turn * DT
 
   // --- 前後の速さ ---
@@ -179,7 +190,10 @@ export function step(s: State, car: Car, c: CO.Course,
   vlong = clamp(vlong, -REVERSE_MAX, car.vmax * (boosting ? BOOST_VMAX : 1))
 
   // --- 横滑り（減りきらずに残ったぶんがドリフトになる）---
-  vlat *= grounded ? Math.max(0, 1 - car.grip * gripMul * DT) : Math.max(0, 1 - AIR_LAT_DRAG * DT)
+  const braking = th < -0.5 // ブレーキを踏むと横グリップが落ちて、滑らせて向きを変えられる
+  vlat *= grounded
+    ? Math.max(0, 1 - car.grip * gripMul * (braking ? BRAKE_SLIDE : 1) * DT)
+    : Math.max(0, 1 - AIR_LAT_DRAG * DT)
 
   // --- ワールド座標の速度に戻す（向きを変えたあとの前後左右で組み立てる）---
   fx = Math.sin(s.yaw); fz = Math.cos(s.yaw)
@@ -304,7 +318,7 @@ export function observe(s: State, car: Car, c: CO.Course): number[] {
 
 // --- 学習なしの運転者 ---------------------------------------------------------
 
-const HEUR_LAT_ACCEL = 26.0
+const HEUR_MARGIN = 0.85 // グリップの限界の何割まで攻めるか
 
 /**
  * 学習なしの運転者。先の中心線へ向かってステアを切り、コーナーの手前で減速する。
@@ -328,8 +342,10 @@ export function heuristicAction(s: State, car: Car, c: CO.Course,
   const b = CO.mod(idx + Math.round(70 / c.spacing), c.n)
   const swing = Math.abs(CO.wrapAngle(c.heading[b] - c.heading[a]))
   const radius = 50 / Math.max(swing, 1e-3)
+  // 曲がれる限界は step() と同じ式で見積もる（ここがずれるとコーナーで膨らむ）
+  const latAccel = (LAT_BASE + LAT_PER_GRIP * car.grip) * HEUR_MARGIN
   const top = car.vmax * (s.boost > 0 ? BOOST_VMAX : 1)
-  const want = Math.min(Math.sqrt(HEUR_LAT_ACCEL * radius), top) * skill
+  const want = Math.min(Math.sqrt(latAccel * radius), top) * skill
   let throttle = clamp((want - vlong) * 0.35, -1, 1)
 
   // 空中では、着地に向けて車の向きをコースの向きへ戻す

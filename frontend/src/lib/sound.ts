@@ -51,7 +51,7 @@ const SILENT: Drone = { set() {}, stop() {} }
 /** drone / noiseLoop の共通部分。音量の変え方と止め方はどちらも同じ */
 function makeDrone(ctx: AudioContext, g: GainNode,
                    setPitch: (t: number, pitch: number) => void,
-                   stopSource: (t: number) => void): Drone {
+                   stopSource: (t: number) => void, glide = 0.04): Drone {
   let stopped = false
   return {
     set(pitch, gain) {
@@ -59,7 +59,7 @@ function makeDrone(ctx: AudioContext, g: GainNode,
       const t = ctx.currentTime
       setPitch(t, pitch)
       // setTargetAtTime: 目標値へじわっと近づける。毎フレーム呼んでもプチッと鳴らない
-      g.gain.setTargetAtTime(Math.max(gain, 0), t, 0.04)
+      g.gain.setTargetAtTime(Math.max(gain, 0), t, glide)
     },
     stop() {
       if (stopped) return
@@ -184,8 +184,14 @@ class SoundEngine {
   // --- 鳴らしっぱなしの音 ------------------------------------------------------
   // 音を止めるのは stop() のときだけで、ミュートや音量は master につながっているので自動で効く。
 
-  /** 鳴らしっぱなしの音（エンジン音など）。set(周波数, 音量) で変え続ける */
-  drone({ type = 'sawtooth', filter = 1400 }: { type?: OscillatorType; filter?: number } = {}): Drone {
+  /**
+   * 鳴らしっぱなしの音（エンジン音など）。set(周波数, 音量) で変え続ける。
+   *
+   * glide は set() したときに新しい値へ移るまでの時間（秒）。小さくすると素早く追従するので、
+   * 毎フレーム音量を揺らして「ボボボ」という脈を作れる。大きいとなめらかだが揺らせない。
+   */
+  drone({ type = 'sawtooth', filter = 1400, glide = 0.04 }:
+        { type?: OscillatorType; filter?: number; glide?: number } = {}): Drone {
     const ctx = this.ensure()
     if (!ctx || !this.master) return SILENT
     const osc = ctx.createOscillator()
@@ -197,12 +203,12 @@ class SoundEngine {
     g.gain.value = 0
     osc.connect(lp).connect(g).connect(this.master)
     osc.start()
-    return makeDrone(ctx, g, (t, pitch) => osc.frequency.setTargetAtTime(Math.max(pitch, 20), t, 0.03),
-                     (t) => osc.stop(t))
+    return makeDrone(ctx, g, (t, pitch) => osc.frequency.setTargetAtTime(Math.max(pitch, 20), t, 0.02),
+                     (t) => osc.stop(t), glide)
   }
 
   /** 鳴らしっぱなしのノイズ（風・タイヤの滑る音など）。set(こもり具合, 音量) で変え続ける */
-  noiseLoop(): Drone {
+  noiseLoop({ glide = 0.04 }: { glide?: number } = {}): Drone {
     const ctx = this.ensure()
     if (!ctx || !this.master) return SILENT
     const src = ctx.createBufferSource()
@@ -216,7 +222,7 @@ class SoundEngine {
     src.connect(lp).connect(g).connect(this.master)
     src.start()
     return makeDrone(ctx, g, (t, pitch) => lp.frequency.setTargetAtTime(Math.max(pitch, 60), t, 0.05),
-                     (t) => src.stop(t))
+                     (t) => src.stop(t), glide)
   }
 
   /** 音階の周波数（A4 = 440Hz から半音 n 個上） */

@@ -13,9 +13,11 @@ const KEY_MAP: Record<string, Action> = {
   Space: 'jump', ShiftLeft: 'jump', ShiftRight: 'jump',
 }
 
-/** ステアを一気に最大まで切らず、少しずつ寄せるための速さ（1 秒で 0 から 1 まで） */
-const STEER_RATE = 4.5
-const STEER_RETURN = 7.0 // 手を離したときに真っすぐへ戻る速さ
+// ステアを一気に最大まで切らず、少しずつ寄せる。
+// 曲がれる速さは物理側でグリップに頭打ちにされているので、ここは速めでも暴れない。
+// 速すぎると細かく当てにくく、遅すぎると切り返しが間に合わない
+const STEER_RATE = 6.5 // 1 秒で 0 から 1 まで切れる速さ
+const STEER_RETURN = 9.5 // 手を離したときに真っすぐへ戻る速さ
 
 export class RaceInput {
   private held = new Set<Action>()

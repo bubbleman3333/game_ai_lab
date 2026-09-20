@@ -36,7 +36,14 @@ DT = 1 / 60  # 1 ステップの時間（秒）
 GRAVITY = 26.0  # 重力（m/s²）。本物より強めにして、飛んでいる時間を気持ちよくしている
 GAP_DROP = 200.0  # 道が途切れている区間の「地面」をどれだけ下に置くか（要するに底なし）
 
-STEER_REF = 9.0  # この速さ（m/s）を超えるとステアが最大に効く。止まっているとほとんど曲がらない
+STEER_REF = 3.0  # この速さ（m/s）以下ではステアが弱くなる（止まったまま回らないように）
+# 横方向にどれだけ踏ん張れるか（m/s²）。速いほど曲がれる角速度がこれで頭打ちになる。
+# これが無いと、時速 144km で半径 10m を横滑りゼロで曲がれてしまい、
+# 「ハンドルを切った瞬間にその場で向きが変わる」置きにくい挙動になる
+LAT_BASE = 12.0
+LAT_PER_GRIP = 0.9  # 車の grip 1 あたりの上乗せ
+BRAKE_SLIDE = 0.55  # ブレーキ中は横グリップがこの倍率になる（ブレーキで滑らせられる）
+ALIGN = 1.0  # 滑っているとき、車の向きが進行方向へ戻る速さ（1/秒）
 REVERSE_MAX = 9.0  # 後退の最高速
 BOOST_TIME = 1.8  # 加速パネルを踏んだときのブーストの長さ（秒）
 BOOST_ACCEL = 26.0  # ブースト中の追加加速（m/s²）
@@ -244,12 +251,19 @@ def step(s: State, car: Car, course: CO.Course,
     s.boost = np.maximum(0.0, s.boost - DT)
 
     # --- 向きを変える ---------------------------------------------------------
-    # 接地中は前輪で曲がる（速いほどよく曲がり、後退中は逆向き）。空中は機体ごと回る
+    # 接地中は前輪で曲がる。ただし「曲がれる速さ」はグリップで頭打ちになる:
+    # 速く走るほど、同じ角速度で曲がるのに必要な横方向の加速度が大きくなるため。
+    # 後退中は逆向き。空中は機体ごと回る
+    lat_accel = (LAT_BASE + LAT_PER_GRIP * car.grip) * grip_mul
+    max_turn = lat_accel / np.maximum(np.abs(vlong), 1.0)
     speed_ref = np.clip(np.abs(vlong) / STEER_REF, 0.0, 1.0)
-    turn_ground = st * car.steer * speed_ref * np.where(vlong < 0, -1.0, 1.0) * np.minimum(grip_mul, 1.0)
+    turn_ground = st * np.minimum(car.steer, max_turn) * speed_ref * np.where(vlong < 0, -1.0, 1.0)
     turn_air = st * car.air_control
     turn = np.where(grounded, turn_ground, turn_air)
-    s.yaw = s.yaw - turn * DT
+    # 滑っているあいだは、車の向きがじわっと進行方向へ戻る（立て直しやすくする）
+    slip_angle = np.arctan2(vlat, np.maximum(np.abs(vlong), 1.0))
+    align = np.where(grounded, ALIGN * slip_angle, 0.0)
+    s.yaw = s.yaw - (turn + align) * DT
     s.spin = np.where(grounded, s.spin, s.spin - turn * DT)
 
     # --- 前後の速さ -----------------------------------------------------------
@@ -262,7 +276,8 @@ def step(s: State, car: Car, course: CO.Course,
 
     # --- 横滑り ---------------------------------------------------------------
     # 接地中はグリップで横滑りが減る。減りきらずに残ったぶんがドリフトになる
-    keep_ground = np.maximum(0.0, 1.0 - car.grip * grip_mul * DT)
+    braking = th < -0.5  # ブレーキを踏むと横グリップが落ちて、滑らせて向きを変えられる
+    keep_ground = np.maximum(0.0, 1.0 - car.grip * grip_mul * np.where(braking, BRAKE_SLIDE, 1.0) * DT)
     keep_air = max(0.0, 1.0 - AIR_LAT_DRAG * DT)
     vlat = vlat * np.where(grounded, keep_ground, keep_air)
 
@@ -406,7 +421,7 @@ def observe(s: State, car: Car, course: CO.Course) -> np.ndarray:
 
 # --- 学習なしの運転者 ---------------------------------------------------------
 
-HEUR_LAT_ACCEL = 26.0  # コーナーで耐えられるとみなす横方向の加速度（大きいほど攻める）
+HEUR_MARGIN = 0.85  # コーナーで、グリップの限界の何割まで攻めるか
 
 
 def heuristic_action(s: State, car: Car, course: CO.Course,
@@ -434,8 +449,10 @@ def heuristic_action(s: State, car: Car, course: CO.Course,
     b = (idx + int(round(70 / course.spacing))) % course.n
     swing = np.abs((course.heading[b] - course.heading[a] + math.pi) % (2 * math.pi) - math.pi)
     radius = 50.0 / np.maximum(swing, 1e-3)
+    # 曲がれる限界は step() と同じ式で見積もる（ここがずれるとコーナーで膨らむ）
+    lat_accel = (LAT_BASE + LAT_PER_GRIP * car.grip) * HEUR_MARGIN
     top = car.vmax * np.where(s.boost > 0, BOOST_VMAX, 1.0)  # ブースト中はそのぶん速く走る
-    want = np.minimum(np.sqrt(HEUR_LAT_ACCEL * radius), top) * skill
+    want = np.minimum(np.sqrt(lat_accel * radius), top) * skill
     throttle = np.clip((want - vlong) * 0.35, -1.0, 1.0)
 
     # 空中では、着地に向けて車の向きをコースの向きへ戻す

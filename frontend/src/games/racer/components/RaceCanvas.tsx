@@ -130,13 +130,13 @@ export function RaceCanvas({ race, readInput, onSnapshot, onEvents, paused }: Pr
         grounded: me.state.on_ground > 0.5,
         boost: me.state.boost,
         scraping,
-      })
+        surface: race.course.kind[Math.trunc(me.state.seg)],
+      }, dt)
       scene.update(dt, race.racers.map((r) => ({ state: r.state, steer: r.steer })), follow)
 
       hudTimer += dt
       if (hudTimer >= HUD_INTERVAL) {
         hudTimer = 0
-        const me = race.player
         cb.current.onSnapshot({
           speed: Math.hypot(me.state.vx, me.state.vz) * 3.6,
           lap: Math.min(me.state.lap + 1, race.laps),
