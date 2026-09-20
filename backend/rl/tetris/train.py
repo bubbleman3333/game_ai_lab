@@ -339,13 +339,15 @@ class Trainer:
             return
         agent = NeuralAgent(self.model, self.cfg.gamma, self.cfg.reward, self.device)
         t = time.time()
-        opponents: dict = {"heuristic": HeuristicAgent()}
-        if self.best_agent is not None:
-            opponents["best"] = self.best_agent
+        opponents: dict = {}
+        if self.cfg.best_by == "versus":
+            opponents["heuristic"] = HeuristicAgent()
+            if self.best_agent is not None:
+                opponents["best"] = self.best_agent
         res = evaluate(agent, self.cfg.eval_games, versus=opponents,
                        versus_games=self.cfg.versus_games, versus_max_pieces=self.cfg.versus_max_pieces)
         score = strength_score(res)
-        is_best = self._promote_if_stronger(res, ckpt_dir)
+        is_best = self._promote_if_stronger(res, ckpt_dir, score)
         if is_best:
             self.best = score
         row = {
@@ -354,22 +356,27 @@ class Trainer:
         }
         with open(self.dir / "evals.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
-        vs_best = res.get("vs_best")
-        best_part = f"vs best={vs_best['win_rate']:.0%} " if vs_best else ""
-        print(
-            f"  [eval] ep={self.episode} score={score:.1f} "
-            f"vs heuristic={res['vs_heuristic']['win_rate']:.0%} {best_part}"
-            f"pressure attack={res.get('pressure', {}).get('avg_attack', 0):.1f}"
-            f"{' → best 更新' if is_best else ''}"
-        )
+        parts = [f"  [eval] ep={self.episode} score={score:.1f}"]
+        for key in ("vs_heuristic", "vs_best"):
+            if key in res:
+                parts.append(f"{key.replace('vs_', 'vs ')}={res[key]['win_rate']:.0%}")
+        parts.append(f"solo lines={res.get('solo', {}).get('avg_lines', 0):.1f}")
+        parts.append(f"pressure attack={res.get('pressure', {}).get('avg_attack', 0):.1f}")
+        print(" ".join(parts) + (" → best 更新" if is_best else ""))
 
-    def _promote_if_stronger(self, res: dict, ckpt_dir: Path) -> bool:
-        """今の best.pt と対戦して勝ち越していたら best.pt を差し替える（勝った方が次の相手になる）。
+    def _promote_if_stronger(self, res: dict, ckpt_dir: Path, score: float) -> bool:
+        """best.pt を差し替えるかどうか。`best_by` で選び方が変わる。
 
-        「火力の平均が過去最高なら best」という選び方だと、打ち切りの手数で頭打ちになったあとは
-        運で決まってしまう。勝ち越したときだけ差し替えることで、少しずつ強い相手と戦い続けられる。
+        "versus"（既定）: 今の best.pt と対戦して勝ち越していたら差し替える。勝った方が次の相手に
+            なるので、相手も一緒に強くなっていく。「火力の平均が過去最高なら best」という選び方だと、
+            打ち切りの手数で頭打ちになったあとは運で決まってしまうため。
+        "solo": ひとり遊びの成績（火力中心）が過去最高なら差し替える。対戦は測らないので評価が速い。
+            火力を伸ばすことだけを狙ったモデルを作るときに使う。
         """
-        if self.best_agent is not None and res["vs_best"]["win_rate"] < self.cfg.promote_win_rate:
+        if self.cfg.best_by == "solo":
+            if score <= self.best:
+                return False
+        elif self.best_agent is not None and res["vs_best"]["win_rate"] < self.cfg.promote_win_rate:
             return False
         save_checkpoint(ckpt_dir / "best.pt", self.model, self._meta())
         frozen = ValueNet(FEATURE_DIM, self.cfg.hidden, self.cfg.layers).to(self.device)

@@ -1,10 +1,12 @@
 """自己対戦での学習（rl/tetris/env.py の VersusEnv と train.py の play_versus_episode）のテスト。"""
 
+import pytest
 import torch
 
 from rl.tetris.agent import HeuristicAgent
 from rl.tetris.config import TrainConfig
 from rl.tetris.env import VersusEnv
+from rl.tetris.evaluate import evaluate, strength_score
 from rl.tetris.model import ValueNet
 from rl.tetris.train import play_versus_episode, use_selfplay
 
@@ -86,3 +88,15 @@ def test_selfplay_can_be_turned_off():
     cfg = _cfg(selfplay_start=-1)
     assert not use_selfplay(cfg, 0)
     assert not use_selfplay(cfg, 100_000)
+
+
+def test_best_by_defaults_to_versus():
+    assert TrainConfig(run_name="t").best_by == "versus"
+
+
+def test_evaluation_without_opponents_falls_back_to_the_solo_score():
+    """best_by="solo" では対戦相手を渡さない。対戦の結果がないので、火力で強さを測る。"""
+    res = evaluate(HeuristicAgent(), games=1, max_pieces=20, modes={"solo": 0.0}, versus={})
+    assert not any(k.startswith("vs_") for k in res)
+    solo = res["solo"]
+    assert strength_score(res) == pytest.approx(solo["avg_attack"] + 0.1 * solo["avg_lines"])

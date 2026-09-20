@@ -46,7 +46,12 @@ class TrainConfig:
     checkpoint_every: int = 250  # 何エピソードごとに保存するか
     eval_every: int = 250  # 何エピソードごとに評価するか（0 で評価しない）
     eval_games: int = 10
+    # best.pt の選び方。
+    #   "versus": 今の best.pt と対戦して勝ち越したら差し替える（対人向け。既定）
+    #   "solo":   ひとり遊びの火力が過去最高なら差し替える（火力特化のモデルを作るとき）
+    best_by: str = "versus"
     # 評価での対戦（match.py）。ヒューリスティック AI と「今の best.pt」の 2 人が相手。
+    # best_by="solo" のときは対戦そのものを行わない（評価が速くなる）。
     versus_games: int = 6  # 相手ごとの対戦数（打つ順番を入れ替えるので偶数にする）
     versus_max_pieces: int = 300  # 1 局の打ち切り。どちらも生き残ったら引き分け
     promote_win_rate: float = 0.55  # 今の best.pt にこの勝率以上で勝ったら best.pt を差し替える

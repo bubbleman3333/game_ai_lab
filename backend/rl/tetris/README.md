@@ -65,9 +65,28 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 強くなると差が出なくなるため。実際、`trial` は 5,750 エピソードで打ち切り上限に届いたあと、
 30,000 エピソード回しても `best.pt` が一度も更新されなかった。
 
-`best.pt` は「今の `best.pt` と対戦して勝率 `--promote-win-rate`（既定 0.55）以上で勝ち越したら差し替える」
-という**勝ち抜き方式**で決まる。勝った重みが次の相手になるので、相手も一緒に強くなっていく
+`best.pt` の選び方は `--best-by` で変わる。
+
+| `--best-by` | 選び方 | 使いどころ |
+|---|---|---|
+| `versus`（既定） | 今の `best.pt` と対戦し、勝率 `--promote-win-rate`（既定 0.55）以上で勝ち越したら差し替える | 対人で強い AI |
+| `solo` | ひとり遊びの成績（火力中心）が過去最高なら差し替える。対戦は測らないので評価が速い | **火力特化のモデル**を作るとき |
+
+`versus` は**勝ち抜き方式**で、勝った重みが次の相手になるので、相手も一緒に強くなっていく
 （AlphaGo などと同じ考え方）。相手が強くなりすぎて更新が止まったら、そこが今の設計の限界。
+
+**攻め特化と対人型は別の run として両方残すこと**（ブロブチェインの `versus` / `chain` と同じ方針）。
+`runs/` は `.gitignore` に入っていて、重みは git に入らない。消すと戻せない。
+
+```powershell
+# 対人で強いモデル（自己対戦 + 勝ち抜き）
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2-versus --selfplay-start 0 `
+    --init-from runs/tetris/trial/checkpoints/best.pt --eps-start 0.2
+
+# 火力特化のモデル（ひとり遊びだけ・おじゃまなし・火力の報酬を上げる）
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2-solo --best-by solo `
+    --selfplay-start -1 --garbage-end 0 --reward-attack 2.0 --reward-alive 0.02
+```
 
 ```powershell
 # 好きな相手と戦わせて勝率を見る（--vs は何回でも指定できる）
