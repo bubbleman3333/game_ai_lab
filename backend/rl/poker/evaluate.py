@@ -163,3 +163,51 @@ def score_of(results: dict[str, dict]) -> float:
     if not results:
         return 0.0
     return sum(r["mbb_per_hand"] for r in results.values()) / len(results)
+
+
+def _main() -> None:
+    """コマンドラインから、ちゃんとした局数で強さを測る。
+
+        cd backend
+        .\.venv\Scripts\python -m rl.poker.evaluate --agent n1:latest
+        .\.venv\Scripts\python -m rl.poker.evaluate --agent n1:latest --hands 60000 --jsonl 強さ.jsonl
+
+    学習中の自動評価は速さのため局数を절約しているので、**本当の強さはこれで測る**。
+    """
+    import argparse
+    import json
+    from datetime import datetime, timezone
+
+    from .exploit import _load_policy
+
+    ap = argparse.ArgumentParser(description="ポーカー AI の強さをちゃんとした局数で測る")
+    ap.add_argument("--agent", default="n1:latest", help='"n1:latest" か pt/npz のファイルの場所')
+    ap.add_argument("--hands", type=int, default=24_000)
+    ap.add_argument("--stack-bb", type=int, default=100)
+    ap.add_argument("--matches", type=int, default=60, help="退場のしにくさを測る回数")
+    ap.add_argument("--seed", type=int, default=777)
+    ap.add_argument("--jsonl", default="", help="結果を 1 行足すファイル（推移を残したいとき）")
+    args = ap.parse_args()
+
+    from . import players  # 循環参照を避けるため、ここで読む
+
+    me = _load_policy(args.agent, seed=11)
+    stack = args.stack_bb * BIG_BLIND
+    row: dict = {"agent": args.agent, "stack_bb": args.stack_bb, "hands": args.hands,
+                 "at": datetime.now(timezone.utc).isoformat()}
+    for name in ("heuristic", "heuristic-loose"):
+        r = head_to_head(me, players.BASELINES[name](7), hands=args.hands,
+                         seed=args.seed + len(name), start_stack=stack)
+        row[f"vs_{name}"] = r.as_dict()
+        print(f"  vs {name:<16} {r}")
+    s = survival(me, players.BASELINES["heuristic"](7), matches=args.matches,
+                 start_stack=stack, max_hands=300, seed=args.seed)
+    row["survival"] = s.as_dict()
+    print(f"  飛んだ割合 {s.bust_rate:.0%}（{s.matches} 回・平均 {s.avg_hands:.0f} 局）")
+    if args.jsonl:
+        with open(args.jsonl, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + chr(10))
+
+
+if __name__ == "__main__":
+    _main()
