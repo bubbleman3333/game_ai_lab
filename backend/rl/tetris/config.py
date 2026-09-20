@@ -44,7 +44,7 @@ class TrainConfig:
     selfplay_start: int = 3000
     init_from: str = ""  # この重みから学習を始める（特徴量の数が同じチェックポイント）
     checkpoint_every: int = 250  # 何エピソードごとに保存するか
-    eval_every: int = 250  # 何エピソードごとに評価するか（0 で評価しない）
+    eval_every: int = 500  # 何エピソードごとに評価するか（0 で評価しない）
     eval_games: int = 10
     # best.pt の選び方。
     #   "versus": 今の best.pt と対戦して勝ち越したら差し替える（対人向け。既定）
@@ -52,7 +52,10 @@ class TrainConfig:
     best_by: str = "versus"
     # 評価での対戦（match.py）。ヒューリスティック AI と「今の best.pt」の 2 人が相手。
     # best_by="solo" のときは対戦そのものを行わない（評価が速くなる）。
-    versus_games: int = 6  # 相手ごとの対戦数（打つ順番を入れ替えるので偶数にする）
+    # 相手ごとの対戦数（打つ順番を入れ替えるので偶数にする）。少ないと勝率が運で決まってしまう:
+    # 6 局だと 5 勝 1 敗（83%）が偶然でも 1 割ほどの確率で出るので、たまたま勝っただけで昇格しうる。
+    # 増やすほど評価に時間がかかるので、eval_every とセットで調整する。
+    versus_games: int = 20
     versus_max_pieces: int = 300  # 1 局の打ち切り。どちらも生き残ったら引き分け
     promote_win_rate: float = 0.55  # 今の best.pt にこの勝率以上で勝ったら best.pt を差し替える
     seed: int = 0
