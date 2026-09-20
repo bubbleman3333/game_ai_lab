@@ -1,7 +1,8 @@
-# テトリス AI に「相手を見る目」を持たせる設計（未実装）
+# テトリス AI に「相手を見る目」を持たせる設計
 
-自己対戦での学習（`--selfplay-start`）まではできている。次の段階として、**相手の盤面を見て
-守りと攻めを切り替える AI** を作るための設計をまとめる。実装はまだしていない。
+**相手の盤面を見て守りと攻めを切り替える AI** の仕組み。土台（特徴量・報酬・API）は実装済みで、
+`FEATURE_VERSION 2` で学習すれば使える。**この特徴量で学習した重みはまだ無い**ので、
+学習するところが残っている。
 
 関連: [backend/rl/tetris/README.md](../backend/rl/tetris/README.md)（学習の全体）、
 [docs/TETRIS_RULES.md](TETRIS_RULES.md)（ルール）
@@ -147,19 +148,27 @@ sink(prev[winner], cfg.reward.win, prev[winner], done=True)
 **同じ画面での対戦**（`frontend/src/games/tetris/game/versus.ts`）: 両方の盤面が手元にあるので、
 そのまま渡せる。
 
-**オンライン対戦**: `opponent_state` で相手の `rows` は既に届いているが、`stats` は
-`pieces / lines / attack` しか入っていない（`protocol.py` / `protocol.ts`）。
-`pending` / `combo` / `b2b` を足す必要がある。**両方のファイルを直すこと**（CLAUDE.md の決まり）。
-なお `state` は 5〜10 回/秒なので相手の盤面は少し古い。人間も同じ条件で見ているので問題ない。
+**オンライン対戦**: 今は人と人しか戦わない（AI は入っていない）ので、**変更していない**。
+将来オンラインに AI を出すときは、`opponent_state` に相手の `rows` と `pending` は既に入っているが
+`combo` / `b2b` が無いので足すことになる。そのときは `protocol.py` と `protocol.ts` の
+**両方を直すこと**（CLAUDE.md の決まり）。なお `state` は 5〜10 回/秒なので相手の盤面は少し古い。
+人間も同じ条件で見ているので問題ない。
 
-## 作業の順番
+## 実装の状況
 
-1. `encoding.py` をバージョン分けする（`encode_v1` / `encode_v2`、`FEATURE_DIMS`）
-   → **この時点で `trial` などが今までどおり動くことをテストで固める**
-2. `OpponentView` と `Position.opponent`、`VersusEnv` から渡す
-3. `RewardConfig.win` と、勝った側の終端遷移
-4. API の `opponent`（省略可）とフロント、オンラインのプロトコル
-5. ゼロから学習（`--selfplay-start` は早め。相手を見る学習は自己対戦でしか起きない）
+| | 場所 | 状態 |
+|---|---|---|
+| 特徴量のバージョン分け | `rl/tetris/encoding.py`・`model.py`・`agent.py` | 済み |
+| `OpponentView` と `Position.opponent` | `rl/tetris/position.py` | 済み |
+| `VersusEnv` が相手の様子を渡す | `rl/tetris/env.py` | 済み |
+| 勝利報酬と、勝った側の終端遷移 | `rl/tetris/config.py`・`train.py` | 済み |
+| API の `opponent`（省略可） | `apps/tetris_ai/serializers.py` | 済み |
+| 画面から相手の盤面を渡す | `frontend/.../api/ai.ts`・`game/aiPlayer.ts`・`pages/VsAiPage.tsx` | 済み |
+| **この特徴量で学習する** | — | **まだ** |
+
+学習は新しい `--run-name` でゼロから行う（古い重みからは続けられない。`--init-from` も弾く）。
+`--selfplay-start` は早めにすること。**相手を見る学習は自己対戦でしか起きない**ので、
+ランダムおじゃまの期間が長いと、相手の特徴量がずっと 0 のまま学習が進んでしまう。
 
 ## うまくいったと判断する材料
 

@@ -5,7 +5,7 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 評価関数を **ニューラルネット V(置いた後の局面)** にして、**遊びながら TD 学習で重みを更新する**。
 
 1. 今のミノ（とホールドしたミノ）の置き場所を全部出す（`games.tetris.find_placements`）
-2. 置いた後の局面を特徴量ベクトル（43 次元、`encoding.py`）にする
+2. 置いた後の局面を特徴量ベクトル（`encoding.py`。自分の盤面 43 個 + 相手の様子 9 個 = 52 次元）にする
 3. `報酬 + γ × V(置いた後)` が最大の手を選ぶ（学習中は確率 ε でランダム）
 4. 経験 `(a_t, r, a_{t+1}, 終了か)` を貯め、`V(a_t) ≒ r + γ V_target(a_{t+1})` になるよう重みを更新（DQN と同じ工夫: リプレイバッファ・ターゲットネット）
 
@@ -15,7 +15,7 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 | ファイル | 中身 |
 |---|---|
 | `position.py` | 局面 `Position` と、候補手の列挙 `enumerate_candidates()` |
-| `encoding.py` | 候補 → 特徴量ベクトル（**変えたら `FEATURE_VERSION` を上げる**） |
+| `encoding.py` | 候補 → 特徴量ベクトル（**変えたら新しい `FEATURE_VERSION` を足す**。古い版は消さない） |
 | `model.py` | `ValueNet`（MLP）と重みの保存・読み込み |
 | `agent.py` | `NeuralAgent`（学習した AI）・`HeuristicAgent`（比較用。固定の重み） |
 | `env.py` | 学習用の環境。`TetrisEnv`（ランダムなおじゃま）と `VersusEnv`（**自己対戦**） |
@@ -32,11 +32,17 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 .\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start 0   # 最初から自己対戦
 .\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start -1  # 自己対戦なし（前と同じ）
 
-# すでにある重みから始める（特徴量の数が同じなら使える）。積み方は覚えているので、
-# すぐ自己対戦に入れて、ランダムに打つ割合も低めから始めるとよい
-.\.venv\Scripts\python -m rl.tetris.train --run-name v2 `
-    --init-from runs/tetris/trial/checkpoints/best.pt --selfplay-start 0 --eps-start 0.2
+# 同じ特徴量バージョンの重みから始める（--init-from）。積み方は覚えているので、
+# すぐ自己対戦に入れて、ランダムに打つ割合も低めから始める
+.\.venv\Scripts\python -m rl.tetris.train --run-name v4 `
+    --init-from runs/tetris/v3-selfplay/checkpoints/best.pt --selfplay-start 0 `
+    --eps-start 0.1 --lr 1.5e-4 --learn-start 50000
 ```
+
+> **`--init-from` は難しい**。学習率をそのままにすると、バッファが小さいうちの更新で
+> せっかくの重みが壊れる（実際に 2 回失敗した）。`--lr` を下げ、`--learn-start` を大きくして
+> 経験がたまってから学習を始めること。それでも壊れることがあるので、
+> **確実なのはゼロから学習し直すほう**。
 
 なぜ必要か: `TetrisEnv` のおじゃまはランダムに降ってくるだけで、**いつ・どれだけ来るかが相手の状況と
 つながっていない**。そのため「相手が大きい火力を溜めているから、今は高く積まずに低く構えておく」
@@ -49,12 +55,19 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 `metrics.jsonl` には自己対戦の回だけ `selfplay: true` と `won`（勝ったか）が入る。
 `garbage_rate` は、自己対戦では「相手から実際に飛んできた火力（1 手あたり）」になる。
 
-> 注意: 相手の盤面そのものはまだ AI に見せていない（特徴量は自分の盤面だけ）。
-> 見せると「相手が溜めているから守る」「相手が高いから畳みかける」を学べるようになる。
-> 設計は [docs/TETRIS_OPPONENT_AWARE.md](../../../docs/TETRIS_OPPONENT_AWARE.md)（未実装）。
+### 相手の盤面を見る（特徴量バージョン 2）
+`FEATURE_VERSION 2`（52 次元）では、自分の盤面に加えて**相手の様子 9 個**を見る。
+「相手が溜めているから守る」「相手が高いから畳みかける」を同じ価値関数が学ぶ。
+仕組みは [docs/TETRIS_OPPONENT_AWARE.md](../../../docs/TETRIS_OPPONENT_AWARE.md)。
+
+- **古い重み（43 次元）はそのまま動く**。チェックポイントの `feature_version` を見て
+  エンコーダを選び分けるので、`trial:best` などは今までどおり遊べる（`model.py`）。
+- 学習は最新バージョンでしか行わない。古い重みからの `--resume` / `--init-from` はエラーになる。
+- 報酬に `--reward-win`（既定 5.0）がある。相手を倒したときの報酬で、自己対戦でだけ効く。
+  **人間を相手に学習させるときは 0 にすること**（格下に勝てるので手を抜くことを学ぶ）。
 
 ## 強さの測り方（勝率で測る・best.pt は勝ち抜きで決まる）
-評価は 250 エピソードごとに次の 2 つを測る（`evaluate.py`）。
+評価は 500 エピソードごとに次の 2 つを測る（`evaluate.py`）。
 
 | 種類 | 中身 |
 |---|---|
@@ -85,12 +98,11 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 
 ```powershell
 # 対人で強いモデル（自己対戦 + 勝ち抜き）
-.\.venv\Scripts\python -m rl.tetris.train --run-name v2-versus --selfplay-start 0 `
-    --init-from runs/tetris/trial/checkpoints/best.pt --eps-start 0.2
+.\.venv\Scripts\python -m rl.tetris.train --run-name v4-versus --selfplay-start 0
 
 # 火力特化のモデル（ひとり遊びだけ・おじゃまなし・火力の報酬を上げる）
-.\.venv\Scripts\python -m rl.tetris.train --run-name v2-solo --best-by solo `
-    --selfplay-start -1 --garbage-end 0 --reward-attack 2.0 --reward-alive 0.02
+.\.venv\Scripts\python -m rl.tetris.train --run-name v4-solo --best-by solo `
+    --selfplay-start -1 --garbage-end 0 --reward-attack 2.0 --reward-alive 0.02 --gamma 0.99
 ```
 
 ```powershell
@@ -170,7 +182,7 @@ T-Spin も少しずつ使い始めている。
 |---|---|
 | `config.json` | 使った設定 |
 | `metrics.jsonl` | 1 エピソード 1 行（ライン・火力・loss・ε…） |
-| `evals.jsonl` | 250 エピソードごとの評価 |
+| `evals.jsonl` | `--eval-every`（既定 500）ごとの評価 |
 | `status.json` | 進み具合 |
 | `checkpoints/` | `ep_000250.pt` …、`latest.pt`、`best.pt`（評価が一番よかったもの） |
 

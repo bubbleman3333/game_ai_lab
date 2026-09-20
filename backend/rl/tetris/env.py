@@ -13,7 +13,7 @@ import random
 
 from games.tetris import Game, LockResult
 
-from .position import Candidate, Position, enumerate_candidates
+from .position import Candidate, OpponentView, Position, enumerate_candidates
 
 
 class TetrisEnv:
@@ -88,7 +88,8 @@ class VersusEnv:
         return any(g.over for g in self.games) or max(g.stats.pieces for g in self.games) >= self.max_pieces
 
     def position(self, side: int) -> Position:
-        return Position.from_game(self.games[side])
+        """side から見た局面。**相手の様子も入れる**（相手を見て守る・畳みかけるを学ぶため）。"""
+        return Position.from_game(self.games[side], OpponentView.from_game(self.games[1 - side]))
 
     def candidates(self, side: int) -> list[Candidate]:
         return enumerate_candidates(self.position(side))

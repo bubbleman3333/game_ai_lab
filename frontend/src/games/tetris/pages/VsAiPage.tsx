@@ -7,6 +7,7 @@ import { TouchControls } from '../components/TouchControls'
 import { isTouchDevice, useTetrisCell } from '../../../lib/useViewport'
 import { PlayerView } from '../components/PlayerView'
 import { Game, GameController } from '../engine'
+import { opponentFromGame } from '../api/ai'
 import { AiPlayer } from '../game/aiPlayer'
 import { KeyboardInput } from '../game/keyboard'
 import { loadHandling, loadKeys } from '../game/settings'
@@ -48,16 +49,16 @@ export function VsAiPage() {
   const keyboard = useMemo(() => new KeyboardInput(me, loadKeys(), loadHandling()), [me])
   const leftAi = useMemo(() => {
     if (mode !== 'ai') return null
-    const p = new AiPlayer(me, { agent: agent2, ...AI_SPEEDS[speed2] })
+    const p = new AiPlayer(me, { agent: agent2, ...AI_SPEEDS[speed2], opponent: () => opponentFromGame(cpu.game) })
     p.onError = setErrorLeft
     return p
-  }, [me, mode, agent2, speed2])
+  }, [me, cpu, mode, agent2, speed2])
   useTetrisSounds(me)
   const ai = useMemo(() => {
-    const p = new AiPlayer(cpu, { agent, ...AI_SPEEDS[speed] })
+    const p = new AiPlayer(cpu, { agent, ...AI_SPEEDS[speed], opponent: () => opponentFromGame(me.game) })
     p.onError = setError
     return p
-  }, [cpu, agent, speed])
+  }, [cpu, me, agent, speed])
 
   useEffect(() => linkGarbage(me, cpu), [me, cpu])
   useEffect(() => (mode === 'human' ? keyboard.attach() : undefined), [keyboard, mode])

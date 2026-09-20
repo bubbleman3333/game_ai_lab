@@ -4,6 +4,14 @@ import type { Action, PieceType, Spin } from '../engine'
 
 // --- AI (/api/tetris/) -------------------------------------------------------------
 
+/** 相手の盤面（省略可）。あると AI が守りと畳みかけを判断できる */
+export interface OpponentDto {
+  rows: number[]
+  pending: [number, number][]
+  combo: number
+  b2b: boolean
+}
+
 /** AI に渡す局面。rows は下の行から 10bit 整数 */
 export interface PositionDto {
   rows: number[]
@@ -14,6 +22,7 @@ export interface PositionDto {
   combo: number
   b2b: boolean
   pending: [number, number][]
+  opponent?: OpponentDto | null
 }
 
 export interface MoveResponse {

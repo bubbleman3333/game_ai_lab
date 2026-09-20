@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from .encoding import FEATURE_DIM, FEATURE_VERSION
+from .encoding import FEATURE_DIM, FEATURE_DIMS, FEATURE_VERSION
 
 
 class ValueNet(nn.Module):
@@ -50,13 +50,21 @@ def save_checkpoint(path: Path, model: ValueNet, meta: dict) -> None:
 
 
 def load_checkpoint(path: Path, device: str | torch.device = "cpu") -> tuple[ValueNet, dict]:
+    """保存された特徴量バージョンのまま読み込む。
+
+    **古いバージョンでもエラーにしない**（昔の重みをそのまま遊べるようにするため）。
+    どのエンコーダを使えばよいかは戻り値の meta["feature_version"] に入れて返す。
+    """
     data = torch.load(path, map_location=device, weights_only=False)
-    if data.get("feature_version") != FEATURE_VERSION:
+    version = data.get("feature_version")
+    if version not in FEATURE_DIMS:
         raise ValueError(
-            f"{path} は特徴量バージョン {data.get('feature_version')} 用です"
-            f"（現在は {FEATURE_VERSION}）。学習し直してください。"
+            f"{path} は特徴量バージョン {version} 用です"
+            f"（使えるのは {sorted(FEATURE_DIMS)}）。学習し直してください。"
         )
-    model = ValueNet(hidden=data["hidden"], layers=data["layers"]).to(device)
+    model = ValueNet(FEATURE_DIMS[version], hidden=data["hidden"], layers=data["layers"]).to(device)
     model.load_state_dict(data["state_dict"])
     model.eval()
-    return model, data.get("meta", {})
+    meta = dict(data.get("meta", {}))
+    meta["feature_version"] = version
+    return model, meta

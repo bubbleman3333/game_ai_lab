@@ -3,6 +3,7 @@
 
 import { ApiError } from '../../../api/client'
 import { positionFromGame, requestMove } from '../api/ai'
+import type { OpponentDto } from '../api/types'
 import type { Action, GameController } from '../engine'
 
 export interface AiOptions {
@@ -12,6 +13,8 @@ export interface AiOptions {
   actionDelayMs: number
   /** 1 手にかける時間（ms。ミノが出てからハードドロップまで）。1000 / PPS。速さの調整用 */
   pieceDelayMs: number
+  /** 相手の盤面を返す関数（対戦のとき）。渡すと AI が守りと畳みかけを判断できる */
+  opponent?: () => OpponentDto | null
 }
 
 export const DEFAULT_AI_OPTIONS: AiOptions = { actionDelayMs: 30, pieceDelayMs: 150 }
@@ -97,7 +100,7 @@ export class AiPlayer {
     const last = this.lastDropAt
     this.pieceStartedAt = last !== null && now - last < 100 ? last : now
     const gen = this.generation
-    requestMove(positionFromGame(this.controller.game), this.opts.agent || undefined)
+    requestMove(positionFromGame(this.controller.game, this.opts.opponent?.()), this.opts.agent || undefined)
       .then((move) => {
         if (gen !== this.generation) return
         if (this.failing) {

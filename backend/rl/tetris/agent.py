@@ -14,7 +14,7 @@ import torch
 from games.tetris.features import board_features
 
 from .config import RewardConfig
-from .encoding import encode_many
+from .encoding import FEATURE_VERSION, encode_many
 from .model import ValueNet, load_checkpoint
 from .position import Candidate, Position, enumerate_candidates, position_after
 
@@ -40,8 +40,10 @@ class NeuralAgent:
     """
 
     def __init__(self, model: ValueNet, gamma: float, reward: RewardConfig, device="cpu", name="neural",
-                 lookahead: int = 0, beam: int = 8):
+                 lookahead: int = 0, beam: int = 8, feature_version: int = FEATURE_VERSION):
         self.model = model.to(device).eval()
+        # この重みがどの特徴量で学習されたか。古い重みは古いエンコーダで読む（model.py 参照）
+        self.feature_version = feature_version
         self.gamma = gamma
         self.reward = reward
         self.device = torch.device(device)
@@ -56,14 +58,15 @@ class NeuralAgent:
         cfg = meta.get("config", {})
         reward = RewardConfig(**cfg.get("reward", {}))
         agent = cls(model, cfg.get("gamma", 0.97), reward, device, name=Path(path).stem,
-                    lookahead=lookahead, beam=beam)
+                    lookahead=lookahead, beam=beam,
+                    feature_version=meta.get("feature_version", FEATURE_VERSION))
         agent.episode = meta.get("episode")
         return agent
 
     @torch.no_grad()
     def scores(self, cands: list[Candidate], feats: np.ndarray | None = None) -> np.ndarray:
         if feats is None:
-            feats = encode_many(cands)
+            feats = encode_many(cands, self.feature_version)
         v = self.model(torch.from_numpy(feats).to(self.device)).cpu().numpy()
         r = np.array([reward_of(c, self.reward) for c in cands], dtype=np.float32)
         alive = np.array([not c.dead for c in cands], dtype=np.float32)

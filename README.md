@@ -69,7 +69,7 @@ cd backend
 ```
 docs/
   TETRIS_RULES.md         テトリスのルール仕様（Python 版と TS 版の共通仕様）
-  TETRIS_OPPONENT_AWARE.md テトリス AI に相手の盤面を見せる設計（未実装）
+  TETRIS_OPPONENT_AWARE.md テトリス AI に相手の盤面を見せる仕組み（学習はこれから）
   OTHELLO.md              オセロのルールと AI の設計
 shared/fixtures/<ゲーム>/  Python 版と TS 版が同じ動きをするか確かめるテストデータ
 shared/courses/*.json     レースのコース（1 つ足すと画面の一覧に出る）→ frontend/src/games/racer/README.md

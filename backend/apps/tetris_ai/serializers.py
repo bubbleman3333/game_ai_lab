@@ -7,6 +7,25 @@ from games.tetris import BOARD_HEIGHT, PIECE_TYPES
 PIECE_CHOICES = list(PIECE_TYPES)
 
 
+class OpponentSerializer(serializers.Serializer):
+    """相手の盤面（省略可）。あると AI が守りと畳みかけを判断できる。
+
+    古い重み（feature_version 1）は相手を見ないので、送っても無視される。
+    """
+
+    rows = serializers.ListField(child=serializers.IntegerField(min_value=0, max_value=1023),
+                                 min_length=1, max_length=BOARD_HEIGHT)
+    pending = serializers.ListField(
+        child=serializers.ListField(child=serializers.IntegerField(min_value=0), min_length=2, max_length=2),
+        default=list, max_length=20,
+    )
+    combo = serializers.IntegerField(min_value=-1, default=-1)
+    b2b = serializers.BooleanField(default=False)
+
+    def validate_rows(self, rows: list[int]) -> list[int]:
+        return rows + [0] * (BOARD_HEIGHT - len(rows))
+
+
 class PositionSerializer(serializers.Serializer):
     """AI に渡す局面。rows は下の行から順に 10bit 整数（docs/RULES.md）。"""
 
@@ -22,6 +41,7 @@ class PositionSerializer(serializers.Serializer):
         child=serializers.ListField(child=serializers.IntegerField(min_value=0), min_length=2, max_length=2),
         default=list, max_length=20,
     )
+    opponent = OpponentSerializer(required=False, allow_null=True, default=None)
 
     def validate_rows(self, rows: list[int]) -> list[int]:
         return rows + [0] * (BOARD_HEIGHT - len(rows))

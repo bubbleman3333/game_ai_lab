@@ -42,7 +42,7 @@ from torch import nn
 
 from .agent import HeuristicAgent, NeuralAgent, reward_of
 from .config import RewardConfig, TrainConfig
-from .encoding import FEATURE_DIM, FEATURE_NAMES, encode_many
+from .encoding import FEATURE_DIM, FEATURE_NAMES, FEATURE_VERSION, encode_many
 from .env import TetrisEnv, VersusEnv
 from .evaluate import evaluate, strength_score
 from .model import ValueNet, load_checkpoint, resolve_device, save_checkpoint
@@ -117,6 +117,22 @@ def play_episode(
     }
 
 
+def _require_current_features(meta: dict, what: str) -> None:
+    """学習は最新の特徴量だけで行う（対局は古い重みでもできる。model.py 参照）。"""
+    version = meta.get("feature_version", FEATURE_VERSION)
+    if version != FEATURE_VERSION:
+        raise SystemExit(
+            f"{what} は特徴量バージョン {version} の重みです（今の学習は {FEATURE_VERSION}）。"
+            f" 続きからは学習できません。新しい --run-name でゼロから学習してください。"
+        )
+
+
+def _winner(env: VersusEnv) -> int | None:
+    """勝った側（0 / 1）。どちらも死んでいない・どちらも死んだなら None。"""
+    over = [g.over for g in env.games]
+    return None if over[0] == over[1] else (1 if over[0] else 0)
+
+
 def play_versus_episode(
     env: VersusEnv, model: ValueNet, cfg: TrainConfig, episode: int, device: torch.device,
     sink: TransitionSink, on_step: Callable[[], None] | None = None,
@@ -155,12 +171,20 @@ def play_versus_episode(
         if on_step:
             on_step()
 
+    # 勝った側には終端の遷移が無い（相手は自分の手番で死ぬので、こちらの手とずれる）。
+    # 「相手を倒した」を学ばせるには、ここで 1 つ流す必要がある。
+    winner = _winner(env)
+    if winner is not None and cfg.reward.win and prev[winner] is not None:
+        sink(prev[winner], cfg.reward.win, prev[winner], True)
+        if winner == 0:
+            reward_0 += cfg.reward.win
+
     me, opp = env.games[0], env.games[1]
     s = me.stats
     return {
         "episode": episode, "pieces": s.pieces, "lines": s.lines, "attack": s.attack,
         "tspin_clears": s.tspin_clears, "tetrises": s.tetrises, "max_combo": s.max_combo,
-        "died": me.over, "won": opp.over and not me.over, "reward": round(reward_0, 3),
+        "died": me.over, "won": winner == 0, "reward": round(reward_0, 3),
         "epsilon": round(eps, 4), "selfplay": True,
         # 相手から実際に飛んできた火力（1 手あたり）。ランダムだった garbage_rate に対応する値
         "garbage_rate": round(opp.stats.attack / max(1, s.pieces), 4),
@@ -254,17 +278,20 @@ class Trainer:
         self.best_agent: NeuralAgent | None = None
         self.last_loss: float | None = None
         if cfg.init_from:
-            init, _ = load_checkpoint(Path(cfg.init_from), self.device)
+            init, meta = load_checkpoint(Path(cfg.init_from), self.device)
+            _require_current_features(meta, cfg.init_from)
             self.model.load_state_dict(init.state_dict())
             print(f"{cfg.init_from} の重みから始めます（エピソード数は 0 から）")
         if resume and (self.dir / "checkpoints" / "latest.pt").exists():
             model, meta = load_checkpoint(self.dir / "checkpoints" / "latest.pt", self.device)
+            _require_current_features(meta, "latest.pt")
             self.model.load_state_dict(model.state_dict())
             self.episode, self.step = meta.get("episode", 0), meta.get("step", 0)
             self.best = meta.get("best", float("-inf"))
             print(f"resume from episode {self.episode}（リプレイバッファは空から）")
         if (self.dir / "checkpoints" / "best.pt").exists():
-            best_model, _ = load_checkpoint(self.dir / "checkpoints" / "best.pt", self.device)
+            best_model, best_meta = load_checkpoint(self.dir / "checkpoints" / "best.pt", self.device)
+            _require_current_features(best_meta, "best.pt")
             self.best_agent = NeuralAgent(best_model, cfg.gamma, cfg.reward, self.device, name="best")
         self.target.load_state_dict(self.model.state_dict())
         self._pending_updates = 0.0
