@@ -18,9 +18,10 @@ from pathlib import Path
 
 from games.tetris import Game
 from games.tetris.pieces import BOARD_HEIGHT, BOARD_WIDTH
-from rl.tetris.agent import NeuralAgent
+from rl.tetris.agent import HeuristicAgent, NeuralAgent
 from rl.tetris.position import Position
 
+from .ffmpeg import encode
 from .png import Canvas, Color, draw_number, hex_color
 
 PIECE_COLORS = {  # frontend/src/games/tetris/components/colors.ts と同じ
@@ -129,12 +130,17 @@ def main() -> None:
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
     p.add_argument("--out", default="tools/video/out/tetris")
+    p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--no-mp4", action="store_true", help="連番 PNG だけ作って mp4 にしない")
     a = p.parse_args()
 
     runs = []
     for name in a.checkpoints:
-        path = Path("runs/tetris") / a.run / "checkpoints" / f"{name}.pt"
-        agent = NeuralAgent.load(path)
+        if name == "heuristic":
+            # 人が手で重みを決めた AI（ルールベース）。学習した AI との対比に使う
+            agent = HeuristicAgent()
+        else:
+            agent = NeuralAgent.load(Path("runs/tetris") / a.run / "checkpoints" / f"{name}.pt")
         steps = play(agent, a.seed, a.max_pieces)
         spins = sum(1 for s in steps if s.spin and s.cleared and s.piece == "T")
         quads = sum(1 for s in steps if s.cleared >= 4)
@@ -143,8 +149,10 @@ def main() -> None:
 
     out = Path(a.out)
     frames = render(runs, out, a.cell, a.hold, a.width, a.height)
-    print(f"\n{frames} フレームを {out} に書き出した。mp4 にするには:")
-    print(f'  ffmpeg -y -framerate 30 -i "{out}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p "{out}.mp4"')
+    print()
+    print(f"{frames} フレーム（{frames / a.fps:.1f} 秒）を {out} に書き出した。")
+    if not a.no_mp4:
+        encode(out, out.with_suffix(".mp4"), a.fps)
 
 
 if __name__ == "__main__":
