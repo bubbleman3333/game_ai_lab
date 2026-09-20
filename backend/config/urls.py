@@ -22,5 +22,6 @@ urlpatterns = [
     path("api/airhockey/", include("apps.airhockey.urls")),
     path("api/racer/", include("apps.racer.urls")),
     path("api/shogi/", include("apps.shogi.urls")),
+    path("api/poker/", include("apps.poker.urls")),
     path("api/monitoring/", include("apps.monitoring.urls")),
 ]

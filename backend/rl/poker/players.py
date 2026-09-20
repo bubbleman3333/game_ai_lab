@@ -20,6 +20,7 @@ import math
 import random
 
 from games.poker.cards import rank_of, suit_of
+from games.poker.game import PolicyFn
 from games.poker.rules import (
     IDX_CHECK_CALL, IDX_FOLD, IDX_RAISE_BASE, State, legal_mask, to_call,
 )
@@ -132,17 +133,27 @@ def heuristic(seed: int = 0, tightness: float = 0.55, aggression: float = 0.25):
     return act
 
 
-def strategy_player(strategy: Strategy, seed: int = 0, purify: float = 0.0):
+def strategy_player(strategy: Strategy, seed: int = 0, purify: float = 0.0,
+                    fallback: PolicyFn | None = None):
     """学習した戦略で打つ。
+
+    `fallback` は**まだ学習していない場面**で使う打ち方（既定はルールベース）。
+    学習の途中では知らない場面がいくらでも出るので、ここを等確率にすると
+    「ときどき急にでたらめを打つ」一番弱い打ち方になってしまう。
 
     `purify` を上げると、確率の小さい手を切り捨ててから選び直す。まとめた（抽象化した）
     戦略では、こうして「迷いを減らす」方が実戦で強くなることが知られている。
     """
     rng = random.Random(seed)
+    if fallback is None:
+        fallback = heuristic(seed + 1)
 
     def act(st: State, player: int, hist: str) -> int:
         depth = config.depth_bucket(st.start_stack)
-        probs = list(strategy.probabilities(st, hist, depth))
+        got = strategy.lookup(st, hist, depth)
+        if got is None:
+            return fallback(st, player, hist)
+        probs = list(got)
         if purify > 0.0:
             kept = [p if p >= purify else 0.0 for p in probs]
             if sum(kept) > 0:

@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.airhockey",
     "apps.racer",
     "apps.shogi",
+    "apps.poker",
     "apps.monitoring",
 ]
 

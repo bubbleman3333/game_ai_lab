@@ -7,11 +7,7 @@ import random
 import pytest
 
 from games.poker.cards import Rng, parse_cards
-from games.poker.rules import IDX_CHECK_CALL, IDX_FOLD
 from rl.poker import abstraction, config, evaluate, mccfr, players
-
-NUTS = ("AhAd", "AhKdQs")  # ボードの A とぶつかるが、強さの上限を見るだけなので気にしない
-
 
 def test_プリフロップは169通りに分かれる():
     seen = set()
@@ -135,7 +131,7 @@ def test_情報集合の鍵に相手の手札が入っていない():
         mccfr.run_iteration(table, deck, rng, t, 1)
     for key in table.regret:
         head, hist = key.split("|", 1)
-        assert head[0] in "012", "先頭はスタックの深さ"
+        assert head[0].isdigit(), "先頭はスタックの深さの番号"
         assert head[1] in "pftr", "次はストリート"
         assert all(ch.isdigit() or ch == "/" for ch in hist), "履歴は行動の番号と区切りだけ"
 
@@ -149,7 +145,10 @@ def test_レイズ額の枠はゲーム側と学習側で必ず一致する():
 
 
 def test_スタックの深さは近いものに割り当てられる():
-    assert config.depth_bucket(40) == 0  # 20BB
-    assert config.depth_bucket(100) == 1  # 50BB
-    assert config.depth_bucket(200) == 2  # 100BB
-    assert config.depth_bucket(1000) == 2, "学習した中で一番深いものに寄せる"
+    """設定を変えても崩れないように「一番近い深さが選ばれる」ことだけを見る。"""
+    depths = config.STACK_DEPTHS_BB
+    for stack in (20, 40, 70, 100, 150, 200, 1000):
+        picked = config.depth_bucket(stack)
+        best = min(range(len(depths)), key=lambda i: abs(depths[i] - stack / 2))
+        assert picked == best
+    assert config.depth_bucket(10_000) == len(depths) - 1, "学習した中で一番深いものに寄せる"

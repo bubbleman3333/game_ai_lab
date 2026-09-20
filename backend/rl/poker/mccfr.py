@@ -248,18 +248,29 @@ class Strategy:
         avg = _average_rows(table, keys)
         return cls({k: [float(v) for v in avg[i]] for i, k in enumerate(keys)}, meta)
 
-    def probabilities(self, st: State, hist: str, depth: int) -> list[float]:
-        """今の局面で各枠を選ぶ確率。学習していない場面は打てる手の等確率。"""
+    def lookup(self, st: State, hist: str, depth: int) -> list[float] | None:
+        """学習した確率。**その場面を学習していなければ None**（呼び出し側が別の手を打つ）。
+
+        学習の途中では知らない場面がいくらでも出る。そこで等確率にしてしまうと
+        「ときどき急にでたらめを打つ AI」になり、人から見て一番弱く見える打ち方になる。
+        """
         mask = legal_mask(st, _FRACTIONS, _MAX_RAISES, street_raises(hist))
         bucket = abstraction.bucket(st.holes[st.to_act], st.board)
         probs = self.table.get(infoset_key(depth, st.street, bucket, hist))
         if probs is None:
-            return _uniform(mask)
+            return None
         out = [probs[i] if mask[i] else 0.0 for i in range(N_ACTIONS)]
         total = sum(out)
         if total <= 0.0:
-            return _uniform(mask)
+            return None
         return [v / total for v in out]
+
+    def probabilities(self, st: State, hist: str, depth: int) -> list[float]:
+        """今の局面で各枠を選ぶ確率。学習していない場面は打てる手の等確率。"""
+        got = self.lookup(st, hist, depth)
+        if got is not None:
+            return got
+        return _uniform(legal_mask(st, _FRACTIONS, _MAX_RAISES, street_raises(hist)))
 
     def __len__(self) -> int:
         return len(self.table)
