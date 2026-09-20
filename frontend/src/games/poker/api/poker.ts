@@ -36,6 +36,8 @@ export interface PokerResultDto {
   payoff: [number, number]
   /** 勝った席（-1 = 引き分け） */
   winner: number
+  /** 降りた席（-1 = 誰も降りていない＝ショーダウン） */
+  folded: number
   showdown: boolean
   human_hand: string | null
   ai_hand: string | null
@@ -79,6 +81,8 @@ export interface PokerTableDto {
   to_call: number
   finished: boolean
   log: PokerLogLine[]
+  /** 席ごとの「このストリートで最後にした行動」。画面の吹き出しに出す */
+  last_actions: (string | null)[]
   result: PokerResultDto | null
   actions: PokerActionsDto
 }

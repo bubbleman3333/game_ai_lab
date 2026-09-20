@@ -23,8 +23,15 @@ export function ActionBar({ table, busy, onAction, onNext }: Props) {
   if (table.finished) {
     const busted = table.result?.busted ?? -1
     const gain = table.result?.payoff[table.you] ?? 0
+    const folded = table.result?.folded ?? -1
+    // なぜ終わったのかを必ず書く。「相手が降りたのか、見せ合って負けたのか」が分からないと何も学べない
+    const reason =
+      folded === table.ai ? 'AI がフォールドしました。'
+      : folded === table.you ? 'あなたがフォールドしました。'
+      : 'ショーダウン（手札を見せ合い）。'
     return (
       <div className="poker-actions">
+        <span className="poker-reason">{reason}</span>
         <span className={gain > 0 ? 'win' : gain < 0 ? 'lose' : 'muted'}>
           {gain > 0 ? `+${gain} 獲得` : gain < 0 ? `${gain} 失点` : '引き分け'}
         </span>
@@ -41,7 +48,12 @@ export function ActionBar({ table, busy, onAction, onNext }: Props) {
   }
 
   if (table.to_act !== table.you) {
-    return <div className="poker-actions muted">AI が考えています…</div>
+    const said = table.last_actions[table.ai]
+    return (
+      <div className="poker-actions muted">
+        {said ? `AI: ${said} → ` : ''}AI が考えています…
+      </div>
+    )
   }
 
   const canSlide = a.can_raise && a.max_raise_to > a.min_raise_to

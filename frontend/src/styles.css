@@ -612,3 +612,13 @@ kbd {
   .card-rank { font-size: 0.95rem; }
   .poker-raise input[type='range'] { width: 110px; }
 }
+
+/* 直前の行動の吹き出し。何をされたのかが一目で分かるように、席の横に出す */
+.poker-said {
+  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px; padding: 3px 12px; font-size: 0.85rem; font-weight: 700;
+  color: #fff; white-space: nowrap;
+}
+.poker-said.folded { background: rgba(0, 0, 0, 0.5); color: #ff9c9c; border-color: #8a4242; }
+.poker-seat.folded .poker-seat-name { text-decoration: line-through; opacity: 0.7; }
+.poker-reason { font-weight: 700; }

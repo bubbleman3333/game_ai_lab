@@ -53,6 +53,7 @@ def table_view(table) -> dict:
         and st.stack_left(HUMAN) > need
         and st.stack_left(AI) > 0
     )
+    last_actions = _last_actions(table.log, st.street, st.finished)
     view = {
         "table_id": str(table.id),
         "agent": table.agent,
@@ -76,6 +77,7 @@ def table_view(table) -> dict:
         "to_call": need,
         "finished": st.finished,
         "log": list(table.log),
+        "last_actions": last_actions,
         "result": None,
         "actions": {
             "can_fold": not st.finished and st.to_act == HUMAN and need > 0,
@@ -92,12 +94,30 @@ def table_view(table) -> dict:
         view["result"] = {
             "payoff": result["payoff"],
             "winner": result["winner"],
+            "folded": result.get("folded", -1),
             "showdown": result["showdown"],
             "human_hand": result.get("human_hand"),
             "ai_hand": result.get("ai_hand"),
             "busted": result.get("busted", -1),
         }
     return view
+
+
+def _last_actions(log: list, street: int, finished: bool) -> list[str | None]:
+    """席ごとの「直前にした行動」。画面の吹き出しに出す。
+
+    途中の局では**今のストリートの行動だけ**を見せる（前のストリートの行動が残っていると
+    「いま何をされたのか」が分からなくなる）。終わった局では、ストリートに関係なく
+    最後の行動を見せる（オールインのあとリバーまで一気に進むので、ストリートがずれるため）。
+    """
+    out: list[str | None] = [None, None]
+    for line in log:
+        player = line.get("player")
+        if player not in (0, 1):
+            continue
+        if finished or line.get("street") == street:
+            out[player] = line["text"].split(": ", 1)[-1]
+    return out
 
 
 def _presets(st) -> list[dict]:

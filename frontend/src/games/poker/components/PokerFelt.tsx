@@ -30,6 +30,8 @@ export function PokerFelt({ table, agentLabel }: Props) {
         turn={table.to_act === ai}
         handName={showdown ? result?.ai_hand ?? null : null}
         won={result ? result.winner === ai : false}
+        lastAction={table.last_actions[ai]}
+        folded={result?.folded === ai}
       />
 
       <div className="poker-middle">
@@ -54,6 +56,8 @@ export function PokerFelt({ table, agentLabel }: Props) {
         turn={table.to_act === you}
         handName={showdown ? result?.human_hand ?? null : null}
         won={result ? result.winner === you : false}
+        lastAction={table.last_actions[you]}
+        folded={result?.folded === you}
       />
     </div>
   )
@@ -70,11 +74,15 @@ interface SeatProps {
   turn: boolean
   handName: string | null
   won: boolean
+  /** このストリートで最後にした行動（「フォールド」「レイズ to 12」など） */
+  lastAction?: string | null
+  /** この席が降りた */
+  folded?: boolean
 }
 
-function Seat({ name, isAi, stack, bet, cards, hidden, button, turn, handName, won }: SeatProps) {
+function Seat({ name, isAi, stack, bet, cards, hidden, button, turn, handName, won, lastAction, folded }: SeatProps) {
   return (
-    <div className={`poker-seat${turn ? ' turn' : ''}${isAi ? ' ai' : ''}`}>
+    <div className={`poker-seat${turn ? ' turn' : ''}${isAi ? ' ai' : ''}${folded ? ' folded' : ''}`}>
       <div className="poker-seat-info">
         <span className="poker-seat-name">
           {name}
@@ -86,9 +94,12 @@ function Seat({ name, isAi, stack, bet, cards, hidden, button, turn, handName, w
       </div>
       <div className="poker-hole">
         {(cards ?? [undefined, undefined]).map((c, i) => (
-          <PlayingCard key={i} card={c} hidden={hidden} />
+          <PlayingCard key={i} card={c} hidden={hidden} dim={folded} />
         ))}
       </div>
+      {lastAction && (
+        <span className={`poker-said${folded ? ' folded' : ''}`}>{lastAction}</span>
+      )}
     </div>
   )
 }

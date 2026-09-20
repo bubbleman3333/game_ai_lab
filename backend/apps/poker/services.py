@@ -208,6 +208,7 @@ def _finish_hand(table: PokerTable, st: State) -> None:
     table.result = {
         "payoff": list(gains),
         "winner": winner,
+        "folded": st.folded,  # 降りた席（-1 = 誰も降りていない）。画面で理由を出すため
         "showdown": showdown,
         "board": [int(c) for c in st.full_board],
         "ai_hole": [int(c) for c in st.holes[AI]],
