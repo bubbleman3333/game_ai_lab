@@ -73,7 +73,8 @@ def _read_json(path: Path) -> dict:
 
 @transaction.atomic
 def sync_run(game: str, run_dir: Path) -> SyncResult:
-    run, _ = TrainingRun.objects.get_or_create(game=game, name=run_dir.name)
+    run, created = TrainingRun.objects.get_or_create(game=game, name=run_dir.name)
+    before = (run.config, run.status, run.metrics_offset, run.evals_offset)
     run.config = _read_json(run_dir / "config.json") or run.config
     run.status = _read_json(run_dir / "status.json") or run.status
 
@@ -96,7 +97,12 @@ def sync_run(game: str, run_dir: Path) -> SyncResult:
         update_conflicts=True, unique_fields=["run", "episode"],
         update_fields=["step", "checkpoint", "score", "is_best", "results", "evaluated_at"],
     )
-    run.save()
+    # **進みがあったときだけ保存する**。`synced_at` は auto_now なので、毎回保存すると
+    # 「最後に同期した学習」が先頭に来てしまい、止まっている学習が上に並ぶ。
+    # 動いている学習だけ時刻が進むようにすると、強さページの既定が今の学習になる。
+    after = (run.config, run.status, run.metrics_offset, run.evals_offset)
+    if created or after != before:
+        run.save()
     return SyncResult(game, run.name, len(rows), len(evals))
 
 
