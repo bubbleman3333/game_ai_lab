@@ -13,6 +13,7 @@
 // 道が途切れている区間（gap）には何も作らない。そこが「穴」になる。
 
 import * as THREE from 'three'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import * as CO from '../engine/course'
 import type { Theme } from './themes'
 
@@ -50,10 +51,23 @@ class Strip {
     }
   }
 
-  mesh(material: THREE.Material): THREE.Mesh {
-    const geo = new THREE.BufferGeometry()
+  /**
+   * smooth を true にすると、同じ位置・同じ色の頂点をまとめてから法線を出す。
+   *
+   * まとめないと、四角形を割った三角形 1 枚ごとに法線が決まってしまう。道は幅 15m・奥行き 1m という
+   * 細長い四角形なので、バンクがわずかにねじれるだけで 2 枚の向きが数十度ずれ、
+   * 路面が凸凹しているように縞々に見えてしまう。まとめれば隣り合う面の傾きが平均されてなめらかになる。
+   * 色が違うところ（加速パネルや砂の境目）は頂点がまとまらないので、色の境目はくっきり残る。
+   */
+  mesh(material: THREE.Material, smooth = false): THREE.Mesh {
+    let geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
     geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3))
+    if (smooth) {
+      const merged = mergeVertices(geo)
+      geo.dispose()
+      geo = merged
+    }
     geo.computeVertexNormals()
     return new THREE.Mesh(geo, material)
   }
@@ -138,12 +152,12 @@ export function buildTrack(c: CO.Course, t: Theme): TrackModel {
   })
   disposables.push(solid, kerbMat, railMat)
 
-  const roadMesh = road.mesh(solid)
+  const roadMesh = road.mesh(solid, true)
   roadMesh.receiveShadow = true
   group.add(roadMesh)
-  group.add(kerb.mesh(kerbMat))
+  group.add(kerb.mesh(kerbMat, true))
   group.add(rail.mesh(railMat))
-  const skirtMesh = skirt.mesh(solid)
+  const skirtMesh = skirt.mesh(solid, true)
   group.add(skirtMesh)
   for (const m of [roadMesh, skirtMesh]) disposables.push(m.geometry)
 

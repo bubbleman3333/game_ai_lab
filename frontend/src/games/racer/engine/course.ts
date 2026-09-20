@@ -13,8 +13,10 @@
 
 export const SUB = 16
 export const SPACING = 1.0
-const BANK_GAIN = 6.0
+const BANK_GAIN = 10.0
 const BANK_MAX = 0.28
+const BANK_DIFF = 3 // 曲がり具合を測る幅（点の数）
+const BANK_SMOOTH = 6 // 測ったあと、±この数の点でならす
 
 export const KIND_NORMAL = 0
 export const KIND_BOOST = 1
@@ -192,10 +194,20 @@ export function build(data: CourseJson): Course {
     const a = mod(k + 1, n), b = mod(k - 1, n)
     heading[k] = Math.atan2(x[a] - x[b], z[a] - z[b])
   }
-  // 曲がり具合から、コーナーの傾き（バンク）を自動でつける
+  // 曲がり具合から、コーナーの傾き（バンク）を自動でつける。
+  // 隣の点どうしで測ると、向きの差をさらに差分する（= 2 階微分）ことになり、
+  // 点を並べ直したときのごくわずかなズレが増幅されて、道の端とガードレールがガタガタになる。
+  // 少し離れた点どうしで測り（BANK_DIFF）、そのあとならす（BANK_SMOOTH）。
+  const raw = new Float64Array(n)
+  const d = BANK_DIFF
+  for (let k = 0; k < n; k++) {
+    raw[k] = wrapAngle(heading[mod(k + d, n)] - heading[mod(k - d, n)]) / (2 * d * spacing)
+  }
   const bank = new Float64Array(n)
   for (let k = 0; k < n; k++) {
-    const curv = wrapAngle(heading[mod(k + 1, n)] - heading[mod(k - 1, n)]) / (2 * spacing)
+    let total = 0
+    for (let j = -BANK_SMOOTH; j <= BANK_SMOOTH; j++) total += raw[mod(k + j, n)]
+    const curv = total / (2 * BANK_SMOOTH + 1)
     // 右へ曲がるときは heading が減る（curv < 0）ので符号を反転し、
     // 「右コーナーでは右側（＝内側）が下がる」ようにする
     bank[k] = clamp(-curv * BANK_GAIN, -BANK_MAX, BANK_MAX) - Math.sign(curv) * Math.abs(bankExtra[k])

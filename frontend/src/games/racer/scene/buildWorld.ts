@@ -7,6 +7,7 @@
 // three.js の InstancedMesh（同じ形をまとめて 1 回で描く仕組み）を使っている。
 
 import * as THREE from 'three'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import * as CO from '../engine/course'
 import { edgePoint } from './buildTrack'
 import type { PropSpec, Theme } from './themes'
@@ -127,8 +128,11 @@ export function buildWorld(c: CO.Course, t: Theme): WorldModel {
         }
       }
     }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    // 道と同じ理由で、まとめてから法線を出さないと大地が縞々になる
+    const raw = new THREE.BufferGeometry()
+    raw.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    const geo = mergeVertices(raw)
+    raw.dispose()
     geo.computeVertexNormals()
     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
       color: t.ground, roughness: 1, side: THREE.DoubleSide,

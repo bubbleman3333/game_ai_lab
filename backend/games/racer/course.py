@@ -35,8 +35,10 @@ COURSES_DIR = Path(__file__).resolve().parents[3] / "shared" / "courses"
 
 SUB = 16  # ウェイポイント 1 区間を何分割して曲線を近似するか
 SPACING = 1.0  # 並べ直したあとの点の間隔（m）の目安。実際はコース 1 周を割り切る値になる
-BANK_GAIN = 6.0  # 曲がり具合 → 道の傾き（バンク）。大きいほどコーナーが深く傾く
+BANK_GAIN = 10.0  # 曲がり具合 → 道の傾き（バンク）。大きいほどコーナーが深く傾く
 BANK_MAX = 0.28  # 自動でつく傾きの上限（ラジアン。約 20 度）
+BANK_DIFF = 3  # 曲がり具合を測る幅（点の数。±この数だけ離れた点の向きを比べる）
+BANK_SMOOTH = 6  # 測ったあと、±この数の点でならす
 
 # 路面の種類。physics.py と course.ts でも同じ番号を使う
 KIND_NORMAL = 0
@@ -78,6 +80,18 @@ def _knot_gap(a: dict, b: dict) -> float:
 def _wrap_angle(a: np.ndarray) -> np.ndarray:
     """角度を -π〜π に収める。"""
     return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+def _moving_average(v: np.ndarray, half: int) -> np.ndarray:
+    """輪になった配列を ±half 点でならす。TypeScript 版と同じ順番で足すこと。"""
+    n = len(v)
+    out = np.zeros(n)
+    for k in range(n):
+        total = 0.0
+        for j in range(-half, half + 1):
+            total += v[(k + j) % n]
+        out[k] = total / (2 * half + 1)
+    return out
 
 
 @dataclass
@@ -241,8 +255,16 @@ def build(data: dict) -> Course:
     heading = _headings(x, z)
     # 曲がり具合（1m あたりの向きの変わり方）から、コーナーの傾きを自動でつける。
     # 右へ曲がるときは heading が減る（curv < 0）ので、符号を反転して
-    # 「右コーナーでは右側（＝内側）が下がる」ようにする
-    curv = _wrap_angle(np.roll(heading, -1) - np.roll(heading, 1)) / (2 * spacing)
+    # 「右コーナーでは右側（＝内側）が下がる」ようにする。
+    #
+    # 隣の点どうしで測ってはいけない。向きの差をさらに差分する（＝ 2 階微分）ことになり、
+    # 点を並べ直したときのごくわずかなズレが大きく増幅される。その結果バンクが点ごとに
+    # 揺れて、道の端とガードレールが数十 cm 単位でガタガタになる。
+    # 少し離れた点どうしで測り（BANK_DIFF）、そのあとならす（BANK_SMOOTH）。
+    # ただ広い幅で測るだけだと、短いコーナーの曲がりまで薄まってバンクが浅くなってしまう。
+    d = BANK_DIFF
+    raw = _wrap_angle(np.roll(heading, -d) - np.roll(heading, d)) / (2 * d * spacing)
+    curv = _moving_average(raw, BANK_SMOOTH)
     auto = np.clip(-curv * BANK_GAIN, -BANK_MAX, BANK_MAX)
     bank = auto - np.sign(curv) * np.abs(bank_extra)
 
