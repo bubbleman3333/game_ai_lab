@@ -28,14 +28,13 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 最初はランダムなおじゃまで積み方を覚えさせ、途中から **AI 同士の対戦**に切り替える（既定 3000 エピソード）。
 
 ```powershell
-.\.venv\Scripts\python -m rl.tetris.train --run-name v2                      # 3000 から自己対戦
-.\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start 0   # 最初から自己対戦
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2                      # 3000 から自己対戦（推奨）
 .\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start -1  # 自己対戦なし（前と同じ）
 
-# 同じ特徴量バージョンの重みから始める（--init-from）。積み方は覚えているので、
-# すぐ自己対戦に入れて、ランダムに打つ割合も低めから始める
-.\.venv\Scripts\python -m rl.tetris.train --run-name v4 `
-    --init-from runs/tetris/v3-selfplay/checkpoints/best.pt --selfplay-start 0 `
+# 同じ特徴量バージョンの重みから続きを鍛える（--init-from）。積み方も攻撃も覚えているので、
+# 自己対戦を早めにして、ランダムに打つ割合も低めから始める
+.\.venv\Scripts\python -m rl.tetris.train --run-name v6 `
+    --init-from runs/tetris/v5-opponent/checkpoints/best.pt --selfplay-start 500 `
     --eps-start 0.1 --lr 1.5e-4 --learn-start 50000
 ```
 
@@ -54,6 +53,13 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 
 `metrics.jsonl` には自己対戦の回だけ `selfplay: true` と `won`（勝ったか）が入る。
 `garbage_rate` は、自己対戦では「相手から実際に飛んできた火力（1 手あたり）」になる。
+
+> **`--selfplay-start 0`（最初から自己対戦）にしてはいけない。** 弱い者同士だと誰も火力を出さず、
+> 殴られないので殴り返す必要もなく、「シングルを消して安全に積み続ける」平和な均衡に落ち着く。
+> 実際 `v4-opponent` はソロ 95 ライン消せるのに、おじゃま火力 7・vs ヒューリスティック 5% で
+> 止まった（同時期の `v3-selfplay` は 58 と 100%）。**まずランダムおじゃまで殴られながら
+> 攻撃を覚えさせること。** `VersusEnv` はランダムおじゃまを降らせないので、
+> 自己対戦の前に `garbage_end` の期間が要る。
 
 ### 相手の盤面を見る（特徴量バージョン 2）
 `FEATURE_VERSION 2`（52 次元）では、自分の盤面に加えて**相手の様子 9 個**を見る。
@@ -97,8 +103,8 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 `runs/` は `.gitignore` に入っていて、重みは git に入らない。消すと戻せない。
 
 ```powershell
-# 対人で強いモデル（自己対戦 + 勝ち抜き）
-.\.venv\Scripts\python -m rl.tetris.train --run-name v4-versus --selfplay-start 0
+# 対人で強いモデル（ランダムおじゃまで攻撃を覚えてから自己対戦 + 勝ち抜き）
+.\.venv\Scripts\python -m rl.tetris.train --run-name v5-versus
 
 # 火力特化のモデル（ひとり遊びだけ・おじゃまなし・火力の報酬を上げる）
 .\.venv\Scripts\python -m rl.tetris.train --run-name v4-solo --best-by solo `

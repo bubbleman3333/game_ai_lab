@@ -164,15 +164,40 @@ sink(prev[winner], cfg.reward.win, prev[winner], done=True)
 | 勝利報酬と、勝った側の終端遷移 | `rl/tetris/config.py`・`train.py` | 済み |
 | API の `opponent`（省略可） | `apps/tetris_ai/serializers.py` | 済み |
 | 画面から相手の盤面を渡す | `frontend/.../api/ai.ts`・`game/aiPlayer.ts`・`pages/VsAiPage.tsx` | 済み |
-| **この特徴量で学習する** | — | **まだ** |
+| この特徴量で学習する | `runs/tetris/v5-opponent/` | 学習中 |
 
 学習は新しい `--run-name` でゼロから行う（古い重みからは続けられない。`--init-from` も弾く）。
-`--selfplay-start` は早めにすること。**相手を見る学習は自己対戦でしか起きない**ので、
-ランダムおじゃまの期間が長いと、相手の特徴量がずっと 0 のまま学習が進んでしまう。
+
+### 失敗例: `--selfplay-start 0` にしてはいけない
+
+当初この文書には「相手を見る学習は自己対戦でしか起きないので `--selfplay-start` は早めに」と
+書いていたが、**それで実際に失敗した**（`v4-opponent`）。
+
+| ep 5,000〜5,500 | v3-selfplay（カリキュラムあり） | v4-opponent（`--selfplay-start 0`） |
+|---|---|---|
+| ソロ ライン | 116 | 95 |
+| おじゃま火力 | 58 | **7** |
+| vs ヒューリスティック | 100% | **5%** |
+
+ライン消しは覚えたのに、**攻撃をまったく覚えなかった**。原因は鶏と卵で、
+最初から自己対戦にすると弱い者同士なので誰も火力を出さず、殴られないので殴り返す必要がなく、
+「シングルを消して安全に積み続ける」平和な均衡に落ち着いてしまう
+（`play_versus_episode` はランダムおじゃまを一切降らせない）。
+
+**`--selfplay-start` は既定の 3000 のままにして、まずランダムおじゃま（`garbage_end`）で
+殴られながら攻撃を覚えさせること。** 最初の 3000 エピソードは相手の特徴量が 0 のままだが、
+「攻撃を知らないまま最後まで行く」ほうがはるかに悪い。
+
+自己対戦を最初から使いたいなら、`VersusEnv` にも弱いランダムおじゃまを混ぜる必要がある（未実装）。
 
 ## うまくいったと判断する材料
 
-- `v3-selfplay`（相手を見ない自己対戦モデル）と**直接対戦させて勝ち越すか**（`match.py`）。
+- `v3-selfplay:best`（相手を見ない自己対戦モデル。ep 7,500）と**直接対戦させて勝ち越すか**。
   これが本命の指標。`--versus-games` は 20 以上にすること（少ないと運で決まる）。
-- おじゃまありの生存率（今は 0%）が上がるか。
+
+  ```powershell
+  .\.venv\Scripts\python -m rl.tetris.evaluate runs/tetris/v5-opponent/checkpoints/best.pt `
+      --vs runs/tetris/v3-selfplay/checkpoints/best.pt --vs-games 20
+  ```
+- おじゃまありの生存率が上がるか（`trial` は最後まで 0%、`v3-selfplay` は 30% まで届いた）。
 - 相手が高いときに火力を出し惜しみしなくなるか（対局のログを見る）。
