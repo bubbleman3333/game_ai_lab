@@ -622,3 +622,5 @@ kbd {
 .poker-said.folded { background: rgba(0, 0, 0, 0.5); color: #ff9c9c; border-color: #8a4242; }
 .poker-seat.folded .poker-seat-name { text-decoration: line-through; opacity: 0.7; }
 .poker-reason { font-weight: 700; }
+.poker-mix { color: var(--text-muted); font-size: 0.85rem; margin-left: 6px; }
+.poker-mix .chosen { color: var(--text); font-weight: 700; }

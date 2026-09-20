@@ -54,6 +54,10 @@ export interface PokerLogLine {
   street_name: string
   who: string
   text: string
+  /** AI がその場面で各手を選ぶ確率。**局が終わるまでサーバーが落とす**（途中で見せると手札が透ける） */
+  probs?: number[]
+  /** 実際に選んだ枠の番号 */
+  chosen?: number
 }
 
 export interface PokerTableDto {

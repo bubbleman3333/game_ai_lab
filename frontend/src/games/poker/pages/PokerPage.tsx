@@ -13,12 +13,35 @@ import {
   type ActionKind, type PokerAgentDto, type PokerTableDto,
 } from '../api/poker'
 
+const ACTION_LABELS = ['降りる', 'チェック/コール', 'ポットの0.5倍', 'ポットの1倍', 'オールイン']
+
 const AGENT_KEY = 'poker.agent'
 const STACK_KEY = 'poker.stack'
 const TABLE_KEY = 'poker.table'
 // 浅いスタックほど「降りるか突っ込むか」の勝負になり、打ち方がまったく変わる。
 // AI は深さごとに別の戦略を学んでいるので、浅いところも選べるようにしておく
 const STACK_CHOICES = [20, 40, 70, 100, 150, 200, 400]
+
+/** AI がその場面で手をどう混ぜていたか（局が終わってから出す） */
+function ActionMix({ probs, chosen }: { probs: number[]; chosen: number }) {
+  const shown = probs
+    .map((p, i) => ({ p, i }))
+    .filter((x) => x.p >= 0.005)
+    .sort((a, b) => b.p - a.p)
+  if (shown.length <= 1) return null
+  return (
+    <span className="poker-mix">
+      （
+      {shown.map((x, k) => (
+        <span key={x.i} className={x.i === chosen ? 'chosen' : undefined}>
+          {k > 0 && ' / '}
+          {ACTION_LABELS[x.i] ?? x.i} {Math.round(x.p * 100)}%
+        </span>
+      ))}
+      ）
+    </span>
+  )
+}
 
 export function PokerPage() {
   const [agents, setAgents] = useState<PokerAgentDto[]>([])
@@ -164,9 +187,16 @@ export function PokerPage() {
                 {table.log.map((l, i) => (
                   <li key={i}>
                     <span className="side-label">{l.street_name}</span> {l.text}
+                    {l.probs && <ActionMix probs={l.probs} chosen={l.chosen ?? -1} />}
                   </li>
                 ))}
               </ol>
+            )}
+            {table.finished && table.log.some((l) => l.probs) && (
+              <p className="muted">
+                かっこの中は、AI がその場面で各手を選ぶ確率です。
+                ポーカーは<strong>手を混ぜないと読まれる</strong>ので、同じ場面でも毎回同じ手を打つとは限りません。
+              </p>
             )}
           </section>
         </>

@@ -77,7 +77,7 @@ def table_view(table) -> dict:
         "to_act": None if st.finished else st.to_act,
         "to_call": need,
         "finished": st.finished,
-        "log": list(table.log),
+        "log": _visible_log(table.log, st.finished),
         "last_actions": last_actions,
         "result": None,
         "actions": {
@@ -102,6 +102,14 @@ def table_view(table) -> dict:
             "busted": result.get("busted", -1),
         }
     return view
+
+
+def _visible_log(log: list, finished: bool) -> list[dict]:
+    """読み上げ。**AI がどの確率でその手を選んだかは、局が終わるまで見せない**
+    （途中で見せると、AI の手札の強さが透けてしまう）。"""
+    if finished:
+        return list(log)
+    return [{k: v for k, v in line.items() if k not in ("probs", "chosen")} for line in log]
 
 
 def _last_actions(log: list, street: int, finished: bool) -> list[str | None]:

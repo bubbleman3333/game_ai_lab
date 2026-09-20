@@ -168,7 +168,13 @@ def _run_ai(table: PokerTable) -> PokerTable:
             index = next(i for i, ok in enumerate(mask) if ok)
         action = action_from_index(st, index, rl_config.RAISE_FRACTIONS)
         need = to_call(st, AI)
-        log.append(_log_line(st, AI, action.kind, action.to, need))
+        line = _log_line(st, AI, action.kind, action.to, need)
+        probs = getattr(policy, "last_probs", None)
+        if probs is not None:
+            # **局が終わるまで画面には出さない**（途中で見せると手札の強さが漏れる）
+            line["probs"] = [round(float(v), 4) for v in probs]
+            line["chosen"] = index
+        log.append(line)
         nxt = apply_action(st, action)
         hist = advance_history(st, nxt, index, hist)
         st = nxt

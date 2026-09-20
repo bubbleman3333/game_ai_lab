@@ -157,3 +157,18 @@ def test_成績の一覧が返る(client):
 def test_無いテーブルは404(client):
     assert client.get("/api/poker/tables/00000000-0000-0000-0000-000000000000/").status_code == 404
     assert client.get("/api/poker/tables/not-a-uuid/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_AIが手を混ぜた確率は局が終わるまで見せない(client):
+    """途中で見せると、AI の手札がどのくらい強いかが透けてしまう。"""
+    view = _new_table(client)
+    assert all("probs" not in line for line in view["log"]), "局の途中で確率を返してはいけない"
+    guard = 0
+    while not view["finished"] and guard < 30:
+        guard += 1
+        assert all("probs" not in line for line in view["log"])
+        kind = "call" if view["actions"]["can_call"] else "check"
+        view = client.post(f"/api/poker/tables/{view['table_id']}/action/", {"kind": kind},
+                           format="json").json()
+    assert view["finished"]

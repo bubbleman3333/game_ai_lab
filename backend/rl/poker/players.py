@@ -152,12 +152,14 @@ def strategy_player(strategy: Strategy, seed: int = 0, purify: float = 0.0,
         depth = config.depth_bucket(st.start_stack)
         got = strategy.lookup(st, hist, depth)
         if got is None:
+            act.last_probs = None  # ルールベースに任せた場面（前の値が残ると嘘になる）
             return fallback(st, player, hist)
         probs = list(got)
         if purify > 0.0:
             kept = [p if p >= purify else 0.0 for p in probs]
             if sum(kept) > 0:
                 probs = kept
+        act.last_probs = list(probs)
         total = sum(probs)
         roll = rng.random() * total
         acc = 0.0
@@ -191,6 +193,7 @@ def neural_player(net, seed: int = 0, purify: float = 0.0, advantage: bool = Fal
             kept = [p if p >= purify else 0.0 for p in probs]
             if sum(kept) > 0:
                 probs = kept
+        act.last_probs = list(probs)  # 局が終わったあと、画面で見せる用
         total = sum(probs)
         roll = rng.random() * total
         acc = 0.0
