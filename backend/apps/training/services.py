@@ -23,9 +23,26 @@ class SyncResult:
 
 
 def _read_new_lines(path: Path, offset: int) -> tuple[list[dict], int]:
-    """offset バイト目から最後の完全な行までを読む。書きかけの最終行は次回に回す。"""
+    """offset バイト目から最後の完全な行までを読む。書きかけの最終行は次回に回す。
+
+    学習中は行が増えるだけなので、前回の続きから読めばよい。ただし**ファイルが書き直される**
+    ことがあり（`rl/<ゲーム>/evaluate.py --save-run` は evals.jsonl を毎回上書きする）、
+    そのとき offset は行の途中を指してしまう。壊れた JSON になったら頭から読み直す。
+    行は run + episode で上書き保存するので、読み直しても二重に入ることはない。
+    """
     if not path.exists():
         return [], offset
+    if offset > path.stat().st_size:
+        offset = 0  # 短くなっている = 書き直された
+    try:
+        return _parse_from(path, offset)
+    except json.JSONDecodeError:
+        if offset == 0:
+            raise
+        return _parse_from(path, 0)
+
+
+def _parse_from(path: Path, offset: int) -> tuple[list[dict], int]:
     with open(path, "rb") as f:
         f.seek(offset)
         data = f.read()

@@ -7,6 +7,7 @@ from channels.testing import WebsocketCommunicator
 from rest_framework.test import APIClient
 
 from apps.training import services as training_services
+from apps.training.models import Evaluation
 from config.asgi import application
 
 
@@ -60,6 +61,37 @@ def test_sync_runs_reads_jsonl(tmp_path, settings, client):
     points = client.get("/api/training/runs/tetris/r1/metrics/?bucket=3").json()["points"]
     assert [p["episode"] for p in points] == [3, 6]
     assert points[1]["avg"]["lines"] == 5  # (4 + 5 + 6) / 3
+
+
+@pytest.mark.django_db
+def test_sync_runs_handles_rewritten_jsonl(tmp_path, settings):
+    """evals.jsonl は `evaluate.py --save-run` で毎回上書きされる。
+
+    前回読んだバイト位置がそのままだと行の途中から読んでしまうので、
+    そうなったら頭から読み直すこと（読み直しても episode で上書きされるだけ）。
+    """
+    run = tmp_path / "tetris" / "baseline"
+    run.mkdir(parents=True)
+    (run / "config.json").write_text("{}")
+    def row(extra):
+        return json.dumps({"episode": 0, "score": 1.0, "results": {"solo": extra}}) + chr(10)
+
+    (run / "evals.jsonl").write_text(row({"a": 1}))
+    settings.TRAINING_RUNS_DIR = tmp_path
+    [r] = training_services.sync_all_runs(tmp_path)
+    assert r.new_evaluations == 1
+
+    # 測り直して上書き（前より長い行になる = offset が行の途中を指す）
+    (run / "evals.jsonl").write_text(row({"a": 1, "b": 2, "c": 3, "d": 4}))
+    [r] = training_services.sync_all_runs(tmp_path)
+    assert r.new_evaluations == 1
+    assert Evaluation.objects.filter(run__name="baseline").count() == 1  # 二重に入らない
+    assert Evaluation.objects.get(run__name="baseline").results["solo"] == {"a": 1, "b": 2, "c": 3, "d": 4}
+
+    # 短くなる（行が減る）場合も読み直せる
+    (run / "evals.jsonl").write_text(row({"a": 9}))
+    [r] = training_services.sync_all_runs(tmp_path)
+    assert Evaluation.objects.get(run__name="baseline").results["solo"] == {"a": 9}
 
 
 @pytest.mark.django_db(transaction=True)

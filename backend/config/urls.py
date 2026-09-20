@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/tetris/", include("apps.tetris_ai.urls")),
     path("api/tetris/", include("apps.tetris_online.urls"), {"game": "tetris"}),
     path("api/blob/", include("apps.tetris_online.urls"), {"game": "blob"}),  # ブロブチェインも同じ対戦の仕組み
+    path("api/blob/", include("apps.blob_ai.urls")),
     path("api/othello/", include("apps.othello.urls")),
     path("api/airhockey/", include("apps.airhockey.urls")),
     path("api/racer/", include("apps.racer.urls")),

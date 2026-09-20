@@ -2,7 +2,7 @@
 
 import {
   ALL_CLEAR_BONUS, COLORS, Field, GARBAGE, H, MAX_GARBAGE_DROP, Rng, SPAWN_X, SPAWN_Y, TARGET_POINT, W,
-  chainScore, childPos, type Pair,
+  canPlace, chainScore, childPos, type Pair,
 } from './rules'
 
 export interface PopStep {
@@ -26,9 +26,9 @@ export class BlobGame {
   maxChain = 0
   /** 相手から届いて、まだ降っていないおじゃま */
   pending = 0
-  /** 70 点に満たずに余った得点（次の消去に持ち越す） */
-  private carry = 0
-  private allClearBonus = false
+  /** 70 点に満たずに余った得点（次の消去に持ち越す）。AI に局面を送るときにも要る */
+  carry = 0
+  allClearBonus = false
   over = false
   stats = { pairs: 0, sent: 0, allClears: 0 }
 
@@ -65,8 +65,7 @@ export class BlobGame {
   }
 
   canPlace(p: Pair): boolean {
-    const [cx, cy] = childPos(p)
-    return this.field.free(p.x, p.y) && this.field.free(cx, cy) && p.y < H && cy < H
+    return canPlace(this.field, p)
   }
 
   // --- 操作 --------------------------------------------------------------------------

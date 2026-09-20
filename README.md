@@ -5,6 +5,7 @@
 | ゲーム | 画面 | AI のしくみ |
 |---|---|---|
 | テトリス | `/tetris/play` ひとりで・`/tetris/vs-ai` AI と対戦・`/tetris/online` オンライン対戦・`/tetris/stats` 強さ | 「置いた後の盤面の価値」をニューラルネット（PyTorch）で学習（DQN 系） |
+| ブロブチェイン | `/blob` ひとりで・`/blob/vs-ai` AI と対戦・`/blob/online` オンライン対戦・`/blob/stats` 強さ | テトリスと同じ DQN 系。報酬を変えた **2 種類**（対戦型 / 連鎖オンリー）を同じ仕組みで育てる |
 | オセロ | `/othello` AI と対局・`/othello/stats` 強さ | 形ごとの点数（n-tuple）を自己対戦の TD 学習で育て、アルファベータ法で先読み |
 | エアホッケー | `/airhockey` AI と対戦・`/airhockey/stats` 強さ | 学習なし AI の模倣から始め、PPO（強化学習）で自己対戦 |
 | レース（3D） | `/racer` 走る・`/racer/stats` 強さ | 学習なしの運転者の模倣から始め、PPO（強化学習）。描画は three.js |
@@ -46,6 +47,8 @@ npx vite preview --strictPort      # http://localhost:5173 で公開用の画面
 ```powershell
 cd backend
 .\.venv\Scripts\python -m rl.tetris.train --run-name v1     # テトリス（GPU）→ backend/rl/tetris/README.md
+.\.venv\Scripts\python -m rl.blob.train --run-name v1-versus --reward-preset versus  # ブロブチェイン: 対戦型
+.\.venv\Scripts\python -m rl.blob.train --run-name v1-chain  --reward-preset chain   # ブロブチェイン: 連鎖オンリー
 .\.venv\Scripts\python -m rl.othello.train --run-name v1    # オセロ（CPU 並列）→ backend/rl/othello/README.md
 .\.venv\Scripts\python -m rl.airhockey.train --run-name v1  # エアホッケー（CPU）→ backend/rl/airhockey/README.md
 .\.venv\Scripts\python -m rl.racer.train --run-name v1      # レース（CPU）→ backend/rl/racer/README.md
@@ -76,6 +79,7 @@ backend/                  Django + DRF + Channels                       → back
   rl/common.py            学習結果の置き場所など共通部分
   apps/training/          学習結果の取り込みと表示用 API（ゲーム共通）      → backend/apps/training/README.md
   apps/tetris_ai/         テトリス AI の手を返す API                     → backend/apps/tetris_ai/README.md
+  apps/blob_ai/           ブロブチェイン AI の手を返す API                → backend/apps/blob_ai/README.md
   apps/tetris_online/     オンライン対戦（テトリス・ブロブチェイン共通。REST + WebSocket） → backend/apps/tetris_online/README.md
   apps/othello/           オセロの重み配信・棋譜の保存                    → backend/apps/othello/README.md
   apps/airhockey/         エアホッケーの方策の配信・試合結果              （中身は views.py の先頭のコメント）
@@ -86,8 +90,8 @@ backend/                  Django + DRF + Channels                       → back
   data/                   学習用データ（将棋の棋譜など。Git には入れない）
   runs/<ゲーム>/<学習名>/  学習結果（Git には入れない）
 frontend/                 React + TypeScript (Vite)                    → frontend/README.md
-  src/games/<ゲーム>/      ゲームごとの エンジン・画面・API 呼び出し（ブロブチェインは AI なし → src/games/blob/README.md、
-                          レースは 3D → src/games/racer/README.md）
+  src/games/<ゲーム>/      ゲームごとの エンジン・画面・API 呼び出し
+                          （ブロブチェインは src/games/blob/README.md、レースは 3D → src/games/racer/README.md）
   src/components/         ゲーム共通の部品（強さページ・グラフ）
 ```
 

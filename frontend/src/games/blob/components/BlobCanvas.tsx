@@ -3,7 +3,12 @@
 
 import { useEffect, useRef } from 'react'
 import type { BlobController } from '../engine/controller'
-import { GARBAGE, H, VISIBLE_H, W, childPos } from '../engine/rules'
+import { GARBAGE, H, VISIBLE_H, W, canPlace, childPos } from '../engine/rules'
+
+/** AI のおすすめの置き場所（一人用の「お手本」表示）。毎フレーム読むので ref で渡す */
+export interface HintRef {
+  current: { x: number; rot: number } | null
+}
 
 const CELL = 44
 const PAD = 8
@@ -71,10 +76,12 @@ function css(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
 
-export function BlobCanvas({ controller, effects, draw }: {
+export function BlobCanvas({ controller, effects, draw, hint }: {
   controller: BlobController
   effects: Effects
   draw: { current: ((now: number) => void) | null }
+  /** AI のおすすめの置き場所（あれば点線で重ねて描く） */
+  hint?: HintRef
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
 
@@ -86,12 +93,12 @@ export function BlobCanvas({ controller, effects, draw }: {
     draw.current = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      render(ctx, controller, effects, now, dt)
+      render(ctx, controller, effects, now, dt, hint?.current ?? null)
     }
     return () => {
       draw.current = null
     }
-  }, [controller, effects, draw])
+  }, [controller, effects, draw, hint])
 
   return <canvas ref={ref} width={CANVAS_W} height={CANVAS_H} className="blob-canvas" />
 }
@@ -103,7 +110,10 @@ function blobColors(): string[] {
     css('--blob-4', '#ffc93c'), css('--blob-garbage', '#b9b6c9')]
 }
 
-function render(ctx: CanvasRenderingContext2D, c: BlobController, fx: Effects, now: number, dt: number): void {
+function render(
+  ctx: CanvasRenderingContext2D, c: BlobController, fx: Effects, now: number, dt: number,
+  hint: { x: number; rot: number } | null = null,
+): void {
   const g = c.game
   const colors = blobColors()
   ctx.save()
@@ -188,6 +198,22 @@ function render(ctx: CanvasRenderingContext2D, c: BlobController, fx: Effects, n
     }
   }
 
+  // AI のおすすめ（点線の枠と矢印）
+  const hp = hint && g.current && c.phase === 'play' ? landing(g, hint.x, hint.rot) : null
+  if (hp) {
+    const [hcx, hcy] = childPos(hp)
+    ctx.save()
+    ctx.setLineDash([6, 5])
+    ctx.lineWidth = 3
+    ctx.strokeStyle = css('--blob-hint', 'rgba(255,238,120,0.9)')
+    for (const [bx, by] of [[hp.x, hp.y], [hcx, hcy]] as [number, number][]) {
+      ctx.beginPath()
+      ctx.arc(X(bx), Y(by), CELL * 0.44, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
   // 操作中の組とゴースト
   const p = g.current
   if (p && c.phase === 'play') {
@@ -251,6 +277,15 @@ function render(ctx: CanvasRenderingContext2D, c: BlobController, fx: Effects, n
   roundRect(ctx, 0, 0, CANVAS_W, CELL * 1.2, 18)
   ctx.fill()
   ctx.restore()
+}
+
+/** (x, rot) に置いたときの着地位置（AI のおすすめの表示用） */
+function landing(g: BlobController['game'], x: number, rot: number) {
+  const base = { ...g.current!, x, rot: rot as 0 | 1 | 2 | 3 }
+  if (!canPlace(g.field, base)) return null
+  let y = base.y
+  while (canPlace(g.field, { ...base, y: y - 1 })) y--
+  return { ...base, y }
 }
 
 /** 1 粒を描く。links: 同じ色の隣とつなげる向き（くっついて見える）。main: 操作中の軸（少し光らせる） */

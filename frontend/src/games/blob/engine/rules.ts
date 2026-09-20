@@ -37,6 +37,12 @@ export function childPos(p: Pair): [number, number] {
   return [p.x + dx, p.y + dy]
 }
 
+/** 組ぷよ p をその場所に置けるか（壁・床・ほかの粒にぶつからないか） */
+export function canPlace(f: Field, p: Pair): boolean {
+  const [cx, cy] = childPos(p)
+  return f.free(p.x, p.y) && f.free(cx, cy) && p.y < H && cy < H
+}
+
 export class Field {
   cells = new Uint8Array(W * H)
 

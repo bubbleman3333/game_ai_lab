@@ -123,8 +123,9 @@ export function TrainingStats<R>({ config }: { config: StatsConfig<R> }) {
       </div>
       {message && <p className="muted">{message}</p>}
       {error && <p className="error">{error}</p>}
-      {runs.length === 0 && !error && (
-        <p className="muted">学習の記録がありません。学習してから「取り込む」を押してください。</p>
+      {!selected && !error && (
+        // 基準線用の run（heuristic-baseline）しかないときもここに来る
+        <p className="muted">学習の記録がありません。学習してから「最新にする」を押してください。</p>
       )}
 
       {run && (

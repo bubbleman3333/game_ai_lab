@@ -32,7 +32,7 @@ src/
     ai/                   探索を Web Worker で動かす（worker.ts）・評価関数の読み込み（aiLoader.ts）
     sounds.ts             効果音
     api/ components/ pages/
-  games/blob/             ブロブチェイン（落ち物パズル。AI なし）→ games/blob/README.md
+  games/blob/             ブロブチェイン（落ち物パズル）→ games/blob/README.md
   games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
   styles.css              色は CSS 変数で指定（暗い配色が基本。`:root[data-theme='light']` で明るい配色）
 ```
@@ -42,6 +42,8 @@ src/
 - テトリスの `/tetris/play` と `/tetris/vs-ai` では、コンソールから `window.__tetris` を見られる。
   例: `__tetris.controller.game.board.toStrings().join('\n')`
 - テトリス AI の手は Network タブの `/api/tetris/move/` で見られる（`path` が操作列）。
+- ブロブチェイン AI の手も同じく `/api/blob/move/`（`placement` が置き場所、`path` が操作列）。
+  一人用 `/blob` で AI を「お手本」にすると、置き場所が点線の丸で盤に出る。
 - オセロの AI の読みは画面右の「読み・予想・読んだ局面」に出る。「評価値を表示」で各手の予想石差も見られる。
 
 ## テトリスのキー設定

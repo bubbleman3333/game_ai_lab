@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "apps.training",
     "apps.tetris_ai",
     "apps.tetris_online",
+    "apps.blob_ai",
     "apps.othello",
     "apps.airhockey",
     "apps.racer",
@@ -118,6 +119,10 @@ TETRIS_AI_DEVICE = os.environ.get("TETRIS_AI_DEVICE", "cpu")
 # テトリス AI の先読み（NEXT を何個先まで読むか。0 なら今のミノだけ）。4 で 1 手 0.2 秒ほど。深いほど強い
 # （rl/tetris/README.md の「対局での先読み」）。サーバーが重いときは下げる
 TETRIS_AI_LOOKAHEAD = int(os.environ.get("TETRIS_AI_LOOKAHEAD", "4"))
+# ブロブチェイン AI（apps/blob_ai）。先読みは画面に出ている NEXT の数ぶん（2）まで意味がある。
+# 2 で 1 手 0.1 秒ほど。0 にすると先読みなしで、そのぶん弱いが速い
+BLOB_AI_DEVICE = os.environ.get("BLOB_AI_DEVICE", "cpu")
+BLOB_AI_LOOKAHEAD = int(os.environ.get("BLOB_AI_LOOKAHEAD", "2"))
 # 将棋 AI の探索（MCTS）に使うデバイス。GPU がなければ自動で CPU
 SHOGI_AI_DEVICE = os.environ.get("SHOGI_AI_DEVICE", "cuda")
 

@@ -2,7 +2,7 @@
 
 import { apiGet, apiPost } from './client'
 
-export type GameName = 'tetris' | 'othello' | 'airhockey' | 'shogi' | 'racer'
+export type GameName = 'tetris' | 'blob' | 'othello' | 'airhockey' | 'shogi' | 'racer'
 
 export interface TrainingRunDto {
   game: GameName

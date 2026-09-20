@@ -7,6 +7,8 @@
 2. 作業する場所の README
    - テトリスのルール → `docs/TETRIS_RULES.md` と `backend/games/tetris/README.md`
    - テトリスの学習 → `backend/rl/tetris/README.md`
+   - ブロブチェイン（落ち物パズル）→ `frontend/src/games/blob/README.md`、ルールの Python 版は
+     `backend/games/blob/`、学習 → `backend/rl/blob/README.md`、AI の API → `backend/apps/blob_ai/README.md`
    - オセロ（ルール・AI の設計）→ `docs/OTHELLO.md`、学習 → `backend/rl/othello/README.md`
    - エアホッケー → `backend/rl/airhockey/README.md`（物理は `backend/games/airhockey/physics.py` と TS 版）
    - レース（3D）→ `frontend/src/games/racer/README.md`（コースの足し方もここ）、学習 → `backend/rl/racer/README.md`
@@ -14,7 +16,6 @@
    - 学習結果の API・強さページ → `backend/apps/training/README.md`
    - テトリス AI の API → `backend/apps/tetris_ai/README.md`
    - オンライン対戦（テトリス・ブロブチェイン共通）→ `backend/apps/tetris_online/README.md`
-   - ブロブチェイン（落ち物パズル。AI なし・ブラウザだけで動く）→ `frontend/src/games/blob/README.md`
    - オセロの API → `backend/apps/othello/README.md`
    - レースの API → `backend/apps/racer/README.md`
    - 画面 → `frontend/README.md`
@@ -25,8 +26,11 @@
 - backend の層: `views.py` / `consumers.py`（Controller）→ `services.py`（書き込み・業務処理）/ `selectors.py`（読み取り）→ `models.py`。
   view から ORM を直接触らない。入出力の形は `serializers.py`。
 - `games/` と `rl/` は Django に依存させない（学習を Django なしで回すため）。
-- テトリスの特徴量（`rl/tetris/encoding.py`）を変えたら `FEATURE_VERSION`、
-  オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION` を上げる。古い重みは使えなくなる。
+- ブロブチェインの AI は報酬だけ変えた 2 種類（`versus` 対戦型 / `chain` 連鎖オンリー）。
+  `rl/blob/config.py` の `REWARD_PRESETS` と `STYLE_DEFAULTS`。**どちらかに寄せず、両方残すこと**。
+- テトリスの特徴量（`rl/tetris/encoding.py`）とブロブチェインの特徴量（`rl/blob/encoding.py`）を変えたら
+  `FEATURE_VERSION`、オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION` を上げる。
+  古い重みは使えなくなる。
 - オンライン対戦の WebSocket のメッセージは `backend/apps/tetris_online/protocol.py` と
   `frontend/src/api/online/protocol.ts` の両方を直す（テトリスとブロブチェインで共通）。
 - SQLite は WAL + `transaction_mode: IMMEDIATE`（`config/settings.py`）。外すと同時アクセスで "database is locked" が出る。
@@ -51,6 +55,7 @@
 ```powershell
 cd backend; .\.venv\Scripts\python -m pytest
 cd backend; .\.venv\Scripts\python -m rl.tetris.train --run-name <名前> [--workers 0 でデバッグ]
+cd backend; .\.venv\Scripts\python -m rl.blob.train --run-name <名前> --reward-preset <versus|chain>
 cd backend; .\.venv\Scripts\python -m rl.othello.train --run-name <名前> [--workers 0 でデバッグ]
 cd backend; .\.venv\Scripts\python manage.py sync_runs
 cd frontend; npm test; npx tsc -b

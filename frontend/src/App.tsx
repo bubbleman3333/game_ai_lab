@@ -16,6 +16,8 @@ import { OthelloStatsPage } from './games/othello/pages/OthelloStatsPage'
 import { OnlineLobby } from './components/online/OnlineLobby'
 import { BlobOnlineRoomPage } from './games/blob/pages/BlobOnlineRoomPage'
 import { BlobSoloPage } from './games/blob/pages/BlobSoloPage'
+import { BlobStatsPage } from './games/blob/pages/BlobStatsPage'
+import { BlobVsAiPage } from './games/blob/pages/BlobVsAiPage'
 import { OnlineRoomPage } from './games/tetris/pages/OnlineRoomPage'
 import { PlayPage } from './games/tetris/pages/PlayPage'
 import { SettingsPage } from './games/tetris/pages/SettingsPage'
@@ -46,7 +48,9 @@ export default function App() {
         <NavLink to="/tetris/settings">キー設定</NavLink>
         <span className="nav-group">ブロブチェイン</span>
         <NavLink to="/blob" end>ひとりで</NavLink>
+        <NavLink to="/blob/vs-ai">AI と対戦</NavLink>
         <NavLink to="/blob/online">オンライン</NavLink>
+        <NavLink to="/blob/stats">強さ</NavLink>
         <span className="nav-group">オセロ</span>
         <NavLink to="/othello" end>対局</NavLink>
         <NavLink to="/othello/stats">強さ</NavLink>
@@ -73,8 +77,10 @@ export default function App() {
           <Route path="/tetris/stats" element={<TetrisStatsPage />} />
           <Route path="/tetris/settings" element={<SettingsPage />} />
           <Route path="/blob" element={<BlobSoloPage />} />
+          <Route path="/blob/vs-ai" element={<BlobVsAiPage />} />
           <Route path="/blob/online" element={<OnlineLobby key="blob" game="blob" basePath="/blob/online" title="ブロブチェイン オンライン対戦" />} />
           <Route path="/blob/online/:code" element={<BlobOnlineRoomPage />} />
+          <Route path="/blob/stats" element={<BlobStatsPage />} />
           <Route path="/othello" element={<OthelloPlayPage />} />
           <Route path="/othello/stats" element={<OthelloStatsPage />} />
           <Route path="/airhockey" element={<AirHockeyPage />} />

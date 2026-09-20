@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { BlobController } from '../engine/controller'
-import { BlobCanvas, Effects, PairPreview } from './BlobCanvas'
+import { BlobCanvas, Effects, PairPreview, type HintRef } from './BlobCanvas'
 
 /** 予告おじゃまのアイコン（大きい玉 = 6 個、岩 = 30 個） */
 function PendingIcons({ n }: { n: number }) {
@@ -17,11 +17,13 @@ function PendingIcons({ n }: { n: number }) {
   )
 }
 
-export function BlobPlayer({ controller, title, overlay, drawRef }: {
+export function BlobPlayer({ controller, title, overlay, drawRef, hint }: {
   controller: BlobController
   title?: string
   overlay?: ReactNode
   drawRef: { current: ((now: number) => void) | null }
+  /** AI のおすすめの置き場所（一人用の「お手本」） */
+  hint?: HintRef
 }) {
   const effects = useMemo(() => new Effects(), [controller])
   const colorsRef = useRef<string[]>([])
@@ -44,7 +46,7 @@ export function BlobPlayer({ controller, title, overlay, drawRef }: {
       <PendingIcons n={g.pending} />
       <div className="blob-body">
         <div className="blob-board">
-          <BlobCanvas controller={controller} effects={effects} draw={drawRef} />
+          <BlobCanvas controller={controller} effects={effects} draw={drawRef} hint={hint} />
           {overlay && <div className="overlay">{overlay}</div>}
         </div>
         <div className="blob-side">

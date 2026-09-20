@@ -14,10 +14,12 @@ const GAMES = [
   },
   {
     title: 'ブロブチェイン',
-    text: '同じ色を 4 つつなげて消す落ち物パズル。連鎖でおじゃまを送り合うオンライン対戦つき（AI なし）',
+    text: '同じ色を 4 つつなげて消す落ち物パズル。AI は「置いた後の盤面の価値」をニューラルネットで学習（テトリスと同じ DQN 系）',
     links: [
       { to: '/blob', label: 'ひとりで遊ぶ' },
+      { to: '/blob/vs-ai', label: 'AI と対戦' },
       { to: '/blob/online', label: 'オンライン対戦' },
+      { to: '/blob/stats', label: 'AI の強さ' },
     ],
   },
   {
