@@ -98,25 +98,32 @@ def render(runs: list[tuple[str, list[Step]]], out: Path, cell: int, hold: int, 
     for old in out.glob("frame_*.png"):
         old.unlink()
     n = max(len(s) for _, s in runs)
+    frame = 0
+    for i in range(n):
+        cv = frame_canvas(runs, i, cell, width, height)
+        for _ in range(hold):
+            cv.save(out / f"frame_{frame:05d}.png")
+            frame += 1
+    return frame
+
+
+def frame_canvas(runs: list[tuple[str, list[Step]]], i: int, cell: int, width: int, height: int) -> Canvas:
+    """i 手目の盤面を並べた画像を 1 枚作る（ファイルには書かない）。
+
+    動画の組み立て（`build_video`）は、これに立ち絵を重ねてから ffmpeg に流す。
+    """
     bw = BOARD_WIDTH * cell
     gap = (width - bw * len(runs)) // (len(runs) + 1)
     top = (height - VISIBLE_ROWS * cell) // 2 + 20
     accents = [hex_color("#31c7ef"), hex_color("#ef7921"), hex_color("#42b642")]
-    frame = 0
-    for i in range(n):
-        highlight = []
-        for _, steps in runs:
-            s = steps[min(i, len(steps) - 1)]
-            live = i < len(steps)
-            highlight.append(live and ((s.spin != "" and s.piece == "T" and s.cleared > 0) or s.cleared >= 4))
-        for _ in range(hold):
-            cv = Canvas(width, height, BG)
-            for k, (_, steps) in enumerate(runs):
-                s = steps[min(i, len(steps) - 1)]
-                draw_board(cv, s, gap + k * (bw + gap), top, cell, accents[k % len(accents)], highlight[k])
-            cv.save(out / f"frame_{frame:05d}.png")
-            frame += 1
-    return frame
+    cv = Canvas(width, height, BG)
+    for k, (_, steps) in enumerate(runs):
+        s = steps[min(i, len(steps) - 1)]
+        live = i < len(steps)
+        # T スピンかテトリスを決めた瞬間だけ枠を光らせる
+        hl = live and ((s.spin != "" and s.piece == "T" and s.cleared > 0) or s.cleared >= 4)
+        draw_board(cv, s, gap + k * (bw + gap), top, cell, accents[k % len(accents)], hl)
+    return cv
 
 
 def main() -> None:

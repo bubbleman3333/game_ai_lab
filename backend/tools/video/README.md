@@ -11,8 +11,10 @@ cd backend
 | ファイル | 中身 |
 |---|---|
 | `daihon.csv` | 台本。1 列目 キャラクター名 / 2 列目 セリフ（字幕） / 3 列目 読み仮名（音声） |
-| `build_video.py` | 全体の組み立て。区間割り・音声トラック・字幕・ffmpeg |
-| `tts.py` | ゆっくり音声の合成（AquesTalk1） |
+| `build_video.py` | 全体の組み立て。区間割り・音声トラック・立ち絵・字幕・ffmpeg |
+| `tts.py` | ゆっくり音声の合成（AquesTalk1）と、音の大きさからの口パク |
+| `yukkuri.py` | 霊夢・魔理沙の立ち絵をコードで描く。口の形は 3 段階 |
+| `bgm.py` | BGM をコードで合成する（配布物を落とさないので権利の確認が要らない） |
 | `aqtalk.ps1` | 32bit PowerShell から AquesTalk.dll を呼ぶ。**ASCII だけで書くこと** |
 | `tetris_clip.py` | 学習した重みを並べて遊ばせ、連番 PNG にする |
 | `png.py` | 依存なしの PNG 書き出し（`zlib` のみ） |
@@ -36,8 +38,15 @@ cd backend
 - 区間の長さに合わせて 1 手あたりのフレーム数を逆算するので、映像は早送りにも引き伸ばしにもならない。
 - ミノの色は `frontend/src/games/tetris/components/colors.ts` と同じにする。
 - `out/` は Git に入れない（`.gitignore`）。
+- フレームはファイルに書かず、生の RGB のまま ffmpeg に流す。6000 枚を PNG で書くと遅いため。
+- 立ち絵を 1 画素ずつ重ねると 1 フレーム 10 万回になって終わらない。
+  `yukkuri.compile_sprite` が不透明な横並びをまとめ、スライス代入で書く。
 
 ## 直したいとき
 - セリフ → `daihon.csv`。**2 列目（字幕）と 3 列目（読み）の両方**を直す。
 - 区間の割り当て・見出し → `build_video.py` の `SECTIONS`。
-- 字幕の色や大きさ → `build_video.write_ass`。
+- 字幕の色や大きさ → `build_video.write_ass`。立ち絵の大きさ・位置 → `FACE_H` と `FACE_X`。
+- BGM の音量 → `build_video.BGM_DB`（既定 -21dB）。曲そのもの → `bgm.py` の `PROGRESSION`。
+  BGM 無しで作るなら `--no-bgm`。
+- **本物のゆっくり素材に差し替えたいとき** → `yukkuri.load_or_draw` にフォルダを渡し、
+  そこに `reimu_close.png` `reimu_half.png` `reimu_open.png` と魔理沙ぶんの 6 枚（透過 PNG）を置く。

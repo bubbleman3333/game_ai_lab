@@ -45,6 +45,72 @@ class Canvas:
         self.fill_rect(x, y, t, h, color)
         self.fill_rect(x + w - t, y, t, h, color)
 
+
+    def blend_px(self, x: int, y: int, color: Color, a: float) -> None:
+        """1 ピクセルを不透明度 a (0〜1) で重ねる。フチのギザギザを減らすのに使う。"""
+        if a <= 0 or x < 0 or y < 0 or x >= self.width or y >= self.height:
+            return
+        if a >= 1:
+            o = (y * self.width + x) * 3
+            self.buf[o:o + 3] = bytes(color)
+            return
+        o = (y * self.width + x) * 3
+        for i in range(3):
+            self.buf[o + i] = int(self.buf[o + i] * (1 - a) + color[i] * a)
+
+    def fill_ellipse(self, cx: float, cy: float, rx: float, ry: float, color: Color,
+                     aa: bool = True) -> None:
+        """楕円。aa=True なら境界を 1px ぶんなめらかにする。
+
+        透過つきの絵を作るときは、色は aa=False（くっきり）、不透明度だけ aa=True にする。
+        そうしないと、境界の色が背景と混ざって黒い滲みになる。
+        """
+        if rx <= 0 or ry <= 0:
+            return
+        for y in range(max(0, int(cy - ry - 1)), min(self.height, int(cy + ry + 2))):
+            for x in range(max(0, int(cx - rx - 1)), min(self.width, int(cx + rx + 2))):
+                d = ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2
+                if d <= 1.0:
+                    self.blend_px(x, y, color, 1.0)
+                elif aa and d <= 1.25:
+                    self.blend_px(x, y, color, (1.25 - d) / 0.25)
+
+    def fill_circle(self, cx: float, cy: float, r: float, color: Color, aa: bool = True) -> None:
+        self.fill_ellipse(cx, cy, r, r, color, aa)
+
+    def fill_poly(self, pts: list[tuple[float, float]], color: Color) -> None:
+        """凸凹どちらでもよい多角形（走査線で塗る）。三角の髪やリボンに使う。"""
+        if len(pts) < 3:
+            return
+        ys = [p[1] for p in pts]
+        for y in range(max(0, int(min(ys))), min(self.height, int(max(ys)) + 1)):
+            xs = []
+            for i in range(len(pts)):
+                x1, y1 = pts[i]
+                x2, y2 = pts[(i + 1) % len(pts)]
+                if (y1 <= y < y2) or (y2 <= y < y1):
+                    xs.append(x1 + (y + 0.5 - y1) * (x2 - x1) / (y2 - y1))
+            xs.sort()
+            for i in range(0, len(xs) - 1, 2):
+                self.fill_rect(int(xs[i]), y, max(1, int(xs[i + 1]) - int(xs[i])), 1, color)
+
+    def paste(self, other: "Canvas", x0: int, y0: int, mask: bytearray | None = None) -> None:
+        """別の画布を重ねる。mask は 0〜255 の不透明度（画素ごと）。"""
+        for y in range(other.height):
+            ty = y0 + y
+            if ty < 0 or ty >= self.height:
+                continue
+            for x in range(other.width):
+                tx = x0 + x
+                if tx < 0 or tx >= self.width:
+                    continue
+                i = y * other.width + x
+                a = 1.0 if mask is None else mask[i] / 255.0
+                if a <= 0:
+                    continue
+                o = i * 3
+                self.blend_px(tx, ty, (other.buf[o], other.buf[o + 1], other.buf[o + 2]), a)
+
     def to_png(self) -> bytes:
         raw = bytearray()
         stride = self.width * 3

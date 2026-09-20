@@ -110,3 +110,31 @@ def synthesize(lines: list[Line], out_dir: Path, speed: int = 100) -> list[Line]
     if failed:
         raise RuntimeError("合成に失敗した行がある:\n" + "\n".join(failed))
     return lines
+
+
+def mouth_track(line: Line, fps: int, frames: int) -> list[str]:
+    """セリフの音の大きさから、1 フレームごとの口の形を決める（口パク）。
+
+    しゃべっていない間は閉じたまま。音が大きいほど大きく開く。
+    戻り値は "close" / "half" / "open" が frames 個。
+    """
+    with wave.open(str(line.wav)) as w:
+        rate = w.getframerate()
+        raw = w.readframes(w.getnframes())
+    n = len(raw) // 2
+    step = max(1, rate // fps)
+    out = []
+    for f in range(frames):
+        lo = f * step
+        if lo >= n:
+            out.append("close")
+            continue
+        hi = min(n, lo + step)
+        # 平均の絶対値で十分（RMS でなくてよい）。1/30 秒ぶんを見る
+        total = 0
+        for i in range(lo, hi):
+            v = int.from_bytes(raw[i * 2:i * 2 + 2], "little", signed=True)
+            total += v if v >= 0 else -v
+        level = total / max(1, hi - lo) / 32768.0
+        out.append("open" if level > 0.085 else "half" if level > 0.025 else "close")
+    return out
