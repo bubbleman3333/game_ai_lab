@@ -41,6 +41,10 @@ const CONFIG: StatsConfig<Results> = {
     { title: '1 手あたりの火力', value: (e) => pressure(e.results).attack_per_piece ?? 0, format: fmt.n2 },
   ],
   metricCharts: [
+    {
+      title: '相手から受けた火力（1 手あたり）', key: 'garbage_rate', format: fmt.n2,
+      note: '自己対戦に入ると、相手が強くなるほど上がっていく（それまではランダムに降らせた量）',
+    },
     { title: '消したライン数', key: 'lines', format: fmt.n1 },
     { title: '火力', key: 'attack', format: fmt.n1 },
     { title: '置いたミノ数', key: 'pieces', format: fmt.n1 },

@@ -18,11 +18,40 @@ GA で重みベクトルを調整する AI と同じく「盤面の特徴量 →
 | `encoding.py` | 候補 → 特徴量ベクトル（**変えたら `FEATURE_VERSION` を上げる**） |
 | `model.py` | `ValueNet`（MLP）と重みの保存・読み込み |
 | `agent.py` | `NeuralAgent`（学習した AI）・`HeuristicAgent`（比較用。固定の重み） |
-| `env.py` | 学習用の環境（ランダムなおじゃまを送る） |
+| `env.py` | 学習用の環境。`TetrisEnv`（ランダムなおじゃま）と `VersusEnv`（**自己対戦**） |
 | `train.py` | 学習（並列の actor + GPU の learner） |
 | `match.py` | **AI 同士の対戦**（オンライン対戦と同じルールで火力を送り合う） |
 | `evaluate.py` | 強さを測る（ひとり遊びの平均 + 対戦の勝率） |
 | `config.py` | 設定（すべてコマンドラインで上書きできる） |
+
+## 自己対戦で学習する（`--selfplay-start`）
+最初はランダムなおじゃまで積み方を覚えさせ、途中から **AI 同士の対戦**に切り替える（既定 3000 エピソード）。
+
+```powershell
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2                      # 3000 から自己対戦
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start 0   # 最初から自己対戦
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2 --selfplay-start -1  # 自己対戦なし（前と同じ）
+
+# すでにある重みから始める（特徴量の数が同じなら使える）。積み方は覚えているので、
+# すぐ自己対戦に入れて、ランダムに打つ割合も低めから始めるとよい
+.\.venv\Scripts\python -m rl.tetris.train --run-name v2 `
+    --init-from runs/tetris/trial/checkpoints/best.pt --selfplay-start 0 --eps-start 0.2
+```
+
+なぜ必要か: `TetrisEnv` のおじゃまはランダムに降ってくるだけで、**いつ・どれだけ来るかが相手の状況と
+つながっていない**。そのため「相手が大きい火力を溜めているから、今は高く積まずに低く構えておく」
+という判断は学びようがなかった。実際 `trial` は攻めだけが伸び、おじゃまありの生存率は 0% のままだった。
+
+`VersusEnv` は Game を 2 つ持ち、片方が出した火力をそのまま相手のおじゃまにする（オンライン対戦と同じ）。
+どちらも同じ重みで打ち、**両方の側の経験を学習に使う**（1 局で 2 人分たまる）。
+先に打つ側がわずかに有利なので、エピソードごとに打つ順番を入れ替える。
+
+`metrics.jsonl` には自己対戦の回だけ `selfplay: true` と `won`（勝ったか）が入る。
+`garbage_rate` は、自己対戦では「相手から実際に飛んできた火力（1 手あたり）」になる。
+
+> 注意: 相手の盤面そのものはまだ AI に見せていない（特徴量は自分の盤面だけ）。
+> 見せるには `encoding.py` に相手の高さ・穴・保留おじゃまなどを足して `FEATURE_VERSION` を上げる。
+> 古い重みは使えなくなる。
 
 ## 強さの測り方（勝率で測る・best.pt は勝ち抜きで決まる）
 評価は 250 エピソードごとに次の 2 つを測る（`evaluate.py`）。

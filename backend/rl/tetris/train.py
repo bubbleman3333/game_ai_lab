@@ -43,7 +43,7 @@ from torch import nn
 from .agent import HeuristicAgent, NeuralAgent, reward_of
 from .config import RewardConfig, TrainConfig
 from .encoding import FEATURE_DIM, FEATURE_NAMES, encode_many
-from .env import TetrisEnv
+from .env import TetrisEnv, VersusEnv
 from .evaluate import evaluate, strength_score
 from .model import ValueNet, load_checkpoint, resolve_device, save_checkpoint
 from ..common import runs_dir
@@ -62,6 +62,11 @@ def schedule(start: float, end: float, episode: int, span: int) -> float:
     """episode が 0 → span で start → end に直線的に変わる値。"""
     frac = min(1.0, episode / max(1, span))
     return start + (end - start) * frac
+
+
+def use_selfplay(cfg: TrainConfig, episode: int) -> bool:
+    """このエピソードを自己対戦で遊ぶか（`selfplay_start` が負なら一度も使わない）。"""
+    return 0 <= cfg.selfplay_start <= episode
 
 
 def episode_params(cfg: TrainConfig, episode: int) -> tuple[float, float]:
@@ -108,7 +113,57 @@ def play_episode(
         "episode": episode, "pieces": s.pieces, "lines": s.lines, "attack": s.attack,
         "tspin_clears": s.tspin_clears, "tetrises": s.tetrises, "max_combo": s.max_combo,
         "died": env.game.over, "reward": round(total_reward, 3),
-        "epsilon": round(eps, 4), "garbage_rate": round(garbage, 4),
+        "epsilon": round(eps, 4), "garbage_rate": round(garbage, 4), "selfplay": False,
+    }
+
+
+def play_versus_episode(
+    env: VersusEnv, model: ValueNet, cfg: TrainConfig, episode: int, device: torch.device,
+    sink: TransitionSink, on_step: Callable[[], None] | None = None,
+) -> dict:
+    """自己対戦を 1 局。**両方の側の経験を sink に流す**（1 局で 2 人分たまる）。
+
+    どちらも同じ重みで打つ。相手が本物なので、届くおじゃまの量とタイミングが相手の盤面と
+    つながっている（ランダムなおじゃまではここが切れていた）。
+    記録するのは side 0 の成績。先に打つ側がわずかに有利なので、エピソードごとに順番を入れ替える。
+    """
+    eps, _ = episode_params(cfg, episode)
+    env.reset(cfg.seed * 1_000_003 + episode, first=episode % 2)
+    agent = NeuralAgent(model, cfg.gamma, cfg.reward, device)
+    prev: list[np.ndarray | None] = [None, None]  # 側ごとに「前に置いた後の局面」を覚えておく
+    reward_0 = 0.0
+
+    while not env.done:
+        side = env.turn
+        cands = env.candidates(side)
+        if not cands:
+            env.games[side].over = True
+            break
+        feats = encode_many(cands)
+        if random.random() < eps:
+            idx = random.randrange(len(cands))
+        else:
+            idx = int(np.argmax(agent.scores(cands, feats)))
+        c = cands[idx]
+        r = reward_of(c, cfg.reward)
+        if side == 0:
+            reward_0 += r
+        if prev[side] is not None:
+            sink(prev[side], r, feats[idx], c.dead)
+        prev[side] = feats[idx]
+        env.step(side, c)
+        if on_step:
+            on_step()
+
+    me, opp = env.games[0], env.games[1]
+    s = me.stats
+    return {
+        "episode": episode, "pieces": s.pieces, "lines": s.lines, "attack": s.attack,
+        "tspin_clears": s.tspin_clears, "tetrises": s.tetrises, "max_combo": s.max_combo,
+        "died": me.over, "won": opp.over and not me.over, "reward": round(reward_0, 3),
+        "epsilon": round(eps, 4), "selfplay": True,
+        # 相手から実際に飛んできた火力（1 手あたり）。ランダムだった garbage_rate に対応する値
+        "garbage_rate": round(opp.stats.attack / max(1, s.pieces), 4),
     }
 
 
@@ -148,6 +203,7 @@ def _actor_main(worker_id: int, cfg_dict: dict, shared: ValueNet, counter, out_q
     device = torch.device("cpu")
     local = ValueNet(FEATURE_DIM, cfg.hidden, cfg.layers)
     env = TetrisEnv(cfg.max_pieces, 0.0, cfg.seed)
+    versus = VersusEnv(cfg.max_pieces, cfg.seed)
     chunk: list[tuple] = []
 
     def flush() -> None:
@@ -169,7 +225,10 @@ def _actor_main(worker_id: int, cfg_dict: dict, shared: ValueNet, counter, out_q
             break
         local.load_state_dict(shared.state_dict())
         local.eval()
-        row = play_episode(env, local, cfg, episode, device, sink)
+        if use_selfplay(cfg, episode):
+            row = play_versus_episode(versus, local, cfg, episode, device, sink)
+        else:
+            row = play_episode(env, local, cfg, episode, device, sink)
         flush()
         out_q.put(("ep", row))
     out_q.put(("exit", worker_id))
@@ -194,6 +253,10 @@ class Trainer:
         # best.pt の重みを固定したもの。評価のたびにこれと対戦し、勝ち越したら best.pt を差し替える
         self.best_agent: NeuralAgent | None = None
         self.last_loss: float | None = None
+        if cfg.init_from:
+            init, _ = load_checkpoint(Path(cfg.init_from), self.device)
+            self.model.load_state_dict(init.state_dict())
+            print(f"{cfg.init_from} の重みから始めます（エピソード数は 0 から）")
         if resume and (self.dir / "checkpoints" / "latest.pt").exists():
             model, meta = load_checkpoint(self.dir / "checkpoints" / "latest.pt", self.device)
             self.model.load_state_dict(model.state_dict())
@@ -335,9 +398,14 @@ class Trainer:
 
     def _train_single(self, log) -> None:
         env = TetrisEnv(self.cfg.max_pieces, 0.0, self.cfg.seed)
+        versus = VersusEnv(self.cfg.max_pieces, self.cfg.seed)
         while self.episode < self.cfg.episodes:
             self.model.eval()
-            row = play_episode(env, self.model, self.cfg, self.episode + 1, self.device, self.add_transition)
+            ep = self.episode + 1
+            if use_selfplay(self.cfg, ep):
+                row = play_versus_episode(versus, self.model, self.cfg, ep, self.device, self.add_transition)
+            else:
+                row = play_episode(env, self.model, self.cfg, ep, self.device, self.add_transition)
             self._on_episode(row, log)
 
     def _train_parallel(self, log) -> None:

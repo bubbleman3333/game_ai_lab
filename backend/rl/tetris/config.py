@@ -38,6 +38,11 @@ class TrainConfig:
     garbage_start: float = 0.0
     garbage_end: float = 0.25
     garbage_ramp_episodes: int = 5000
+    # このエピソードから自己対戦に切り替える（それまではランダムなおじゃまで積み方を覚えさせる）。
+    # 自己対戦では相手が本物なので、おじゃまの量とタイミングが相手の盤面とつながる。
+    # 0 で最初から自己対戦、負の値で自己対戦をしない（前と同じ学習）。
+    selfplay_start: int = 3000
+    init_from: str = ""  # この重みから学習を始める（特徴量の数が同じチェックポイント）
     checkpoint_every: int = 250  # 何エピソードごとに保存するか
     eval_every: int = 250  # 何エピソードごとに評価するか（0 で評価しない）
     eval_games: int = 10
