@@ -7,6 +7,10 @@
 単位は **mbb/hand**（1 局あたり、ビッグブラインドの 1/1000 が何個か）。ポーカーの世界で
 よく使われる単位で、+50 mbb/hand ならかなり勝っている。
 
+それでもブレは残るので、**標準誤差（`stderr_mbb`）も一緒に返す**。実際、同じ戦略が
+4000 局の評価で +392、24000 局で -165 になったことがあり、局数をケチると
+「一番よい重み」の選択がほぼ運になる。差が標準誤差の 2 倍より小さければ、まだ何も言えない。
+
 「簡単に退場しないか」は別に測る（`survival`）。スタックを持ち越して片方が飛ぶまで打ち、
 自分が飛んだ割合と、何局もったかを見る。
 """
@@ -29,14 +33,19 @@ class HeadToHead:
     chips: int
     mbb_per_hand: float
     win_rate: float  # 引き分けを 0.5 として数えた勝率
+    stderr_mbb: float = 0.0  # mbb/hand の標準誤差
 
     def as_dict(self) -> dict:
         return {
             "hands": self.hands,
             "chips": self.chips,
             "mbb_per_hand": round(self.mbb_per_hand, 1),
+            "stderr_mbb": round(self.stderr_mbb, 1),
             "win_rate": round(self.win_rate, 4),
         }
+
+    def __str__(self) -> str:
+        return f"{self.mbb_per_hand:+.1f} ± {self.stderr_mbb:.1f} mbb/hand（{self.hands:,} 局）"
 
 
 def head_to_head(
@@ -52,21 +61,33 @@ def head_to_head(
     chips = 0
     wins = 0.0
     played = 0
+    # 「同じカードで 2 回打った合計」を 1 つの標本として散らばりを測る（ここがブレの単位）
+    pair_sum = 0.0
+    pair_sq = 0.0
     for i in range(pairs):
         state = deal(rng, start_stack=start_stack, button=i % 2)
+        gain_pair = 0
         for seat in (0, 1):
             policies = (a, b) if seat == 0 else (b, a)
             result = play_hand(state, policies, config.RAISE_FRACTIONS,
                                config.MAX_RAISES_PER_STREET)
             gain = result.payoff[seat]
+            gain_pair += gain
             chips += gain
             wins += 1.0 if gain > 0 else (0.5 if gain == 0 else 0.0)
             played += 1
+        pair_sum += gain_pair
+        pair_sq += gain_pair * gain_pair
+    mean_pair = pair_sum / pairs
+    var_pair = max(0.0, pair_sq / pairs - mean_pair * mean_pair)
+    # 1 局あたりに直すので 2 で割り、標本数の平方根で割る
+    stderr = (var_pair / pairs) ** 0.5 / 2 / BIG_BLIND * 1000 if pairs > 1 else 0.0
     return HeadToHead(
         hands=played,
         chips=chips,
         mbb_per_hand=chips / played / BIG_BLIND * 1000,
         win_rate=wins / played,
+        stderr_mbb=stderr,
     )
 
 

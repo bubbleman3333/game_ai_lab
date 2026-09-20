@@ -67,6 +67,7 @@ class TrainConfig:
     min_stack_bb: float = 10.0
     max_stack_bb: float = 200.0
     eval_every: int = 10  # 何反復ごとに strategy ネットを作って強さを測るか
+    snapshot_every: int = 250  # 何反復ごとに世代として別名で残すか（あとで並べて比べる）
     eval_hands: int = 20_000  # 少ないとブレて「一番よい」を取り違える
     eval_matches: int = 40
     seed: int = 1
@@ -279,6 +280,9 @@ class Trainer:
         if is_best:
             self.best = score
             strategy.save(ckpt / "best.pt", self._meta())
+        if self.cfg.snapshot_every and self.iteration % self.cfg.snapshot_every == 0:
+            # 世代として残す（強さだけでなく打ち方の「個性」を後から並べて比べられる）
+            strategy.save(ckpt / f"iter_{self.iteration:06d}.pt", self._meta())
         append_jsonl(self.dir / "evals.jsonl", {
             "episode": self.iteration,
             "step": self.iteration,
