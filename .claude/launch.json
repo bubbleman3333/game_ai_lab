@@ -66,6 +66,21 @@
         "8790"
       ],
       "port": 8790
+    },
+    {
+      "name": "biz-site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--prefix",
+        "../biz-site",
+        "wrangler",
+        "dev",
+        "--config",
+        "../biz-site/wrangler.jsonc",
+        "--port",
+        "8791"
+      ],
+      "port": 8791
     }
   ]
 }
