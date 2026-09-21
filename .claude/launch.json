@@ -51,6 +51,21 @@
         "--strictPort"
       ],
       "port": 5177
+    },
+    {
+      "name": "yukyu",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--prefix",
+        "../yukyu",
+        "wrangler",
+        "dev",
+        "--config",
+        "../yukyu/wrangler.jsonc",
+        "--port",
+        "8790"
+      ],
+      "port": 8790
     }
   ]
 }
