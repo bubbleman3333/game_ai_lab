@@ -81,6 +81,33 @@
         "8791"
       ],
       "port": 8791
+    },
+    {
+      "name": "hojokin",
+      "runtimeExecutable": "../hojokin_site/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "-d",
+        "../hojokin_site/dist"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "groundwork",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--prefix",
+        "../groundwork",
+        "wrangler",
+        "dev",
+        "--config",
+        "../groundwork/wrangler.jsonc",
+        "--port",
+        "8792"
+      ],
+      "port": 8792
     }
   ]
 }
