@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "site-stats",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--config", "../site_stats/stats/wrangler.jsonc", "--port", "8799", "--local"],
+      "port": 8799
+    },
+    {
       "name": "backend",
       "runtimeExecutable": "backend/.venv/Scripts/python.exe",
       "runtimeArgs": [
