@@ -555,7 +555,29 @@ kbd {
   display: flex; gap: 16px; align-items: center; padding: 8px 12px; border-radius: 8px;
   border: 1px solid transparent;
 }
-.poker-seat.turn { border-color: var(--accent); background: rgba(57, 135, 229, 0.12); }
+.poker-seat.turn {
+  border-color: var(--accent); background: rgba(57, 135, 229, 0.14);
+  box-shadow: 0 0 0 2px rgba(57, 135, 229, 0.45), 0 0 18px rgba(57, 135, 229, 0.35);
+  animation: poker-glow 1.6s ease-in-out infinite;
+}
+.poker-seat.turn:not(.ai) { border-color: #ffd479; background: rgba(255, 212, 121, 0.14);
+  box-shadow: 0 0 0 2px rgba(255, 212, 121, 0.55), 0 0 18px rgba(255, 212, 121, 0.35); }
+@keyframes poker-glow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
+.poker-turn-tag {
+  font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+  background: #ffd479; color: #1b1b1f;
+}
+.poker-seat.ai .poker-turn-tag { background: var(--accent); color: #fff; }
+/* ボードの上の「誰の番で、何が起きているか」 */
+.poker-turn {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 14px; border-radius: 8px;
+  font-size: 0.95rem; background: rgba(0, 0, 0, 0.25);
+}
+.poker-turn.you { background: rgba(255, 212, 121, 0.16); border: 1px solid rgba(255, 212, 121, 0.5); }
+.poker-turn.ai { color: rgba(255, 255, 255, 0.8); }
+.poker-turn-who { font-weight: 800; white-space: nowrap; }
+.poker-turn.you .poker-turn-who { color: #ffd479; }
+@media (prefers-reduced-motion: reduce) { .poker-seat.turn { animation: none; } }
 .poker-seat.ai { flex-direction: row-reverse; }
 .poker-seat-info { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
 .poker-seat-name { font-weight: 700; display: flex; gap: 6px; align-items: center; }

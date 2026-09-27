@@ -47,13 +47,8 @@ export function ActionBar({ table, busy, onAction, onNext }: Props) {
     )
   }
 
-  if (table.to_act !== table.you) {
-    const said = table.last_actions[table.ai]
-    return (
-      <div className="poker-actions muted">
-        {said ? `AI: ${said} → ` : ''}AI が考えています…
-      </div>
-    )
+  if (table.to_act !== table.you || busy) {
+    return <div className="poker-actions muted">AI の番です…</div>
   }
 
   const canSlide = a.can_raise && a.max_raise_to > a.min_raise_to
@@ -90,7 +85,7 @@ export function ActionBar({ table, busy, onAction, onNext }: Props) {
             onClick={() => onAction('raise', Math.min(Math.max(amount, a.min_raise_to), a.max_raise_to))}
             disabled={busy}
           >
-            {amount >= a.max_raise_to ? 'オールイン' : `レイズ to ${amount}`}
+            {amount >= a.max_raise_to ? 'オールイン' : a.can_check ? `ベット ${amount}` : `レイズ to ${amount}`}
           </button>
           {a.presets.map((p) => (
             <button key={p.label} className="poker-preset" onClick={() => setAmount(p.to)} disabled={busy}>

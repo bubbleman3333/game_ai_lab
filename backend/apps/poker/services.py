@@ -203,8 +203,10 @@ def _log_line(st: State, player: int, kind: int, to: int, need: int) -> dict:
         text = f"コール {need}"
     elif to >= st.street_bet[player] + st.stack_left(player):
         text = f"オールイン（{to}）"
+    elif st.street_bet[1 - player] == 0:
+        text = f"ベット {to}"  # まだ誰も賭けていないところに賭けるのは「ベット」
     else:
-        text = f"レイズ to {to}"
+        text = f"レイズ to {to}"  # 相手の賭けに上乗せするのが「レイズ」
     return {"player": player, "street": st.street, "street_name": STREET_NAMES[st.street],
             "who": who, "text": f"{who}: {text}"}
 
