@@ -1,6 +1,6 @@
 // 警察のヘリコプター。手配度 ★3 以上で飛んできて、上空から追いかける。
 //   ★3  サーチライトで照らしながら追う（近くにいるあいだは「見られている」扱い）
-//   ★4+ 狙撃手が上から撃ってくる。速く走っているほど当たりにくい
+//   ★5  狙撃手が上から撃ってくる。速く走っているほど当たりにくい
 // ヘリは車より遅い（最高 30m/s）ので、全力で走れば振り切れる。three.js には依存しない。
 
 import type { Body } from './vehicle'
@@ -89,7 +89,7 @@ export class Heli {
         this.burstGap = 0.12
         // 速いほど当たりにくい（止まっていればほぼ当たる）
         const sp = speedOf(target)
-        const hit = rng() < Math.max(0.12, 0.75 - sp / 45)
+        const hit = rng() < Math.max(0.05, 0.45 - sp / 40)
         const miss = hit ? 0.8 : 3 + rng() * 5
         const a = rng() * Math.PI * 2
         shots.push({
@@ -98,8 +98,8 @@ export class Heli {
         })
       }
     } else if (this.cooldown <= 0) {
-      this.burst = 4 + Math.floor(rng() * 4)
-      this.cooldown = 2.5 + rng() * 2
+      this.burst = 3 + Math.floor(rng() * 3)
+      this.cooldown = 5 + rng() * 4
     }
     return shots
   }

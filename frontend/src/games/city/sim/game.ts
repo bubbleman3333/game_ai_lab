@@ -874,7 +874,7 @@ export class Game {
     this.addScore(-Math.round(this.score * 0.05), '引き上げ代')
   }
 
-  /** 警察のヘリ: ★3 で飛んできて、★4 からは撃ってくる */
+  /** 警察のヘリ: ★3 で飛んできて、★5 からは撃ってくる */
   private updateHeli(dt: number): void {
     const me = this.player.body
     if (this.stars >= 3 && this.state === 'play') {
@@ -890,10 +890,11 @@ export class Game {
     }
     const h = this.heli
     if (!h) return
-    const shots = h.update(dt, me, this.stars >= 4 && this.state === 'play', this.rng)
+    // ★5 になって初めて撃ってくる。1 発の傷は小さい（逃げ回る時間を長く楽しめるように）
+    const shots = h.update(dt, me, this.stars >= 5 && this.state === 'play', this.rng)
     for (const s of shots) {
       this.events.push({ kind: 'shot', ...s })
-      if (s.hit) this.damage(this.player, 5)
+      if (s.hit) this.damage(this.player, 1.8)
       else this.scareAround(s.tx, s.tz, 10)
     }
     if (h.leaving && h.horizontalDistance(me) > 450) this.heli = null

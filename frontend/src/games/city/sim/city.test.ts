@@ -164,7 +164,7 @@ describe('海とヘリ', () => {
     const { SEAWALL } = await import('./cityMap')
     const g = new Game()
     const b = g.player.body
-    b.x = SEAWALL - 20; b.z = 0; b.yaw = Math.PI / 2; b.vx = 25; b.vz = 0
+    b.x = SEAWALL - 20; b.z = 0; b.yaw = Math.PI / 2; b.vx = 36; b.vz = 0
     let splash = false
     for (let k = 0; k < 60 * 3; k++) for (const e of g.update(1 / 60, { ...NONE, throttle: 1 })) if (e.kind === 'splash' && e.player) splash = true
     expect(splash).toBe(true)
@@ -172,12 +172,17 @@ describe('海とヘリ', () => {
     expect(g.deathReason).toBe('water')
   })
 
-  it('手配度 4 でヘリが来て撃ってくる', () => {
+  it('手配度 5 でヘリが来て撃ってくる', () => {
     const g = new Game()
-    g.setStars(4)
+    g.setStars(5)
     let shots = 0
-    for (let k = 0; k < 60 * 25; k++) for (const e of g.update(1 / 60, NONE)) if (e.kind === 'shot') shots++
-    expect(g.heli).not.toBeNull()
+    let sawHeli = false
+    // 止まっていると逮捕されてしまうので、ぐるぐる走り回る
+    for (let k = 0; k < 60 * 35; k++) {
+      for (const e of g.update(1 / 60, { ...NONE, throttle: 0.6, steer: 0.5 })) if (e.kind === 'shot') shots++
+      sawHeli ||= g.heli !== null
+    }
+    expect(sawHeli).toBe(true)
     expect(shots).toBeGreaterThan(0)
   })
 })
@@ -213,5 +218,17 @@ describe('野次馬と声', () => {
     expect(lines.length).toBeGreaterThan(80)
     expect(new Set(lines.map(voiceKey)).size).toBe(lines.length)
     for (const l of lines) expect(spokenText(l.text).length).toBeGreaterThan(0)
+  })
+})
+
+describe('海に落ちにくい', () => {
+  it('ふつうの速さで護岸にぶつかっても海には落ちない', async () => {
+    const { SEAWALL } = await import('./cityMap')
+    const g = new Game()
+    const b = g.player.body
+    b.x = SEAWALL - 20; b.z = 0; b.yaw = Math.PI / 2; b.vx = 22; b.vz = 0
+    for (let k = 0; k < 60 * 3; k++) g.update(1 / 60, NONE)
+    expect(g.state).toBe('play')
+    expect(b.x).toBeLessThan(SEAWALL)
   })
 })

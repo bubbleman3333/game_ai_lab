@@ -14,8 +14,8 @@ import type { CityMap } from './cityMap'
 import { CURB_HEIGHT } from './cityMap'
 
 export const G = 9.81
-/** この速さ（m/s、約 58km/h）より速く護岸に突っ込むと、乗り越えて海へ落ちる */
-export const WALL_JUMP = 16
+/** この速さ（m/s、約 110km/h）より速く、ほぼ正面から護岸に突っ込んだときだけ、柵を突き破って海へ落ちる */
+export const WALL_JUMP = 30
 
 export type VehicleType = 'sport' | 'sedan' | 'hatch' | 'taxi' | 'van' | 'suv' | 'police'
 
@@ -262,6 +262,7 @@ function bounce(b: Body, s: VehicleSpec, cx: number, cz: number, nx: number, nz:
 
 const tmpB: number[] = []
 const tmpP: number[] = []
+const tmpS: number[] = []
 const circ: [number, number][] = [[0, 0], [0, 0], [0, 0]]
 
 /**
@@ -270,13 +271,14 @@ const circ: [number, number][] = [[0, 0], [0, 0], [0, 0]]
  */
 export function collideWorld(b: Body, s: VehicleSpec, map: CityMap, broken: Uint8Array): WorldHit | null {
   const rad = s.width / 2
-  map.near(b.x, b.z, s.length / 2 + 2, tmpB, tmpP)
+  map.near(b.x, b.z, s.length / 2 + 2, tmpB, tmpP, tmpS)
   let hit: WorldHit | null = null
   // 店のある建物は、当たり判定の箱を SHOP_DEPTH だけ内側に縮める（ガラスを突き破って店の中へめり込める）
   const boxes = tmpB.map((i) => {
     const B = map.buildings[i]
     return B.shop ? { x0: B.x0 + SHOP_DEPTH, z0: B.z0 + SHOP_DEPTH, x1: B.x1 - SHOP_DEPTH, z1: B.z1 - SHOP_DEPTH } : B
   })
+  for (const i of tmpS) boxes.push(map.solids[i])
   const nBuildings = boxes.length
   // 店の外側の箱に入ったら「店に突っ込んだ」
   let shopHit: { b: number; x: number; z: number } | null = null

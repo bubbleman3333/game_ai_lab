@@ -16,6 +16,7 @@ import { makeRng, range } from '../sim/rng'
 import { GeoBuilder } from './geoBuilder'
 import * as TX from './textures'
 import type { CityTheme } from './themes'
+import { addWallDetail, repeated, type Photos } from './photoTextures'
 
 const STYLES: Style[] = ['glass', 'office', 'concrete', 'brick', 'warehouse', 'house']
 const SHOP_H = TX.SHOP_HEIGHT
@@ -24,6 +25,8 @@ export interface CityModel {
   group: THREE.Group
   /** 夜の度合い（0 = 昼、1 = 夜）に合わせて光るものの明るさを変える */
   setNight(n: number): void
+  /** 写真のテクスチャが読み込めたら、道路・歩道・壁などに差し替える */
+  applyPhotos(photos: Photos): void
   /** 信号の色と、倒れた街灯を反映する */
   update(time: number, broken: Uint8Array, brokenYaw: Float32Array): void
   water: THREE.Mesh
@@ -190,10 +193,12 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
   // --- 建物 ----------------------------------------------------------------------------
   const facades = Object.fromEntries(STYLES.map((s) => [s, TX.facade(s)])) as Record<Style, TX.FacadeTextures>
   // 店構えは 4 種類（同じ並びが続かないように、建物ごとに選ぶ）
-  const shops = [0, 1, 2, 3].map((k) => TX.shopfront(k))
+  const SHOP_THEMES: TX.ShopTheme[] = ['downtown', 'nightlife', 'local']
+  const shops = SHOP_THEMES.flatMap((th) => [0, 1, 2].map((k) => TX.shopfront(k, th)))
+  const ads = TX.billboardAtlas()
   const signs = TX.signAtlas()
   const vend = TX.vendingFront()
-  for (const f of [...Object.values(facades), ...shops, signs, vend]) { keep(f.map); keep(f.rough); keep(f.emissive) }
+  for (const f of [...Object.values(facades), ...shops, signs, vend, ads]) { keep(f.map); keep(f.rough); keep(f.emissive) }
   /** 壁から道路側へ突き出た縦長の看板（1 棟に 1〜3 枚） */
   const addSigns = (B: { x0: number; z0: number; x1: number; z1: number; h: number }, r: () => number, base: number) => {
     if (B.h < 10) return
@@ -239,6 +244,8 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
   const shopBs = shops.map(() => new GeoBuilder())
   const signB = new GeoBuilder()
   const vendB = new GeoBuilder()
+  const adB = new GeoBuilder()
+  const adFrameB = new GeoBuilder()
   const roofB = new GeoBuilder()
   const tileB = new GeoBuilder()
   const ledgeB = new GeoBuilder()
@@ -253,7 +260,10 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     const top = base + B.h
     wallBuilders[B.style].walls(B.x0, B.z0, B.x1, B.z1, y0, top, su, sv, u0, v0 - y0 / sv)
     if (B.shop) {
-      shopBs[Math.floor(brng() * shopBs.length)].walls(B.x0, B.z0, B.x1, B.z1, base, y0, TX.SHOP_WIDTH, SHOP_H,
+      // 地区で店の種類を選ぶ（繁華街は高級店、中層の街は飲み屋街、住宅街は商店）
+      const dist = map.blockAt((B.x0 + B.x1) / 2, (B.z0 + B.z1) / 2)?.district
+      const th = dist === 'downtown' ? 0 : dist === 'residential' ? 2 : 1
+      shopBs[th * 3 + Math.floor(brng() * 3)].walls(B.x0, B.z0, B.x1, B.z1, base, y0, TX.SHOP_WIDTH, SHOP_H,
                                                        Math.floor(brng() * 8) / 8, -base / SHOP_H)
       addSigns(B, brng, base)
       if (brng() < 0.45) addVending(B, brng, base)
@@ -299,6 +309,28 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
       const x = range(brng, B.x0 + 1.5, B.x1 - 1.5 - bw), z = range(brng, B.z0 + 1.5, B.z1 - 1.5 - bd)
       roofB.box(x, top, z, x + bw, top + range(brng, 1.2, B.h > 30 ? 4.5 : 2.2), z + bd, 2)
     }
+    // 屋上の広告看板（中くらいの高さのビル）
+    if (B.h > 14 && B.h < 75 && brng() < 0.4) {
+      const faces: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      const [nx, nz] = faces[Math.floor(brng() * 4)]
+      const cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2
+      const span = nx ? B.z1 - B.z0 : B.x1 - B.x0
+      const hw = Math.min(8, span * 0.4), hh = hw * 0.42
+      const px = nx === 1 ? B.x1 - 1.5 : nx === -1 ? B.x0 + 1.5 : cx
+      const pz = nz === 1 ? B.z1 - 1.5 : nz === -1 ? B.z0 + 1.5 : cz
+      const tx = nz, tz = -nx // 看板の横方向
+      const yb = top + 2.5, yt = yb + hh * 2
+      const cell = Math.floor(brng() * 8)
+      const u0 = (cell % 2) / 2, u1 = u0 + 0.5
+      const v1 = 1 - Math.floor(cell / 2) / 4, v0 = v1 - 0.25
+      adB.quad([px - tx * hw, yb, pz - tz * hw], [px + tx * hw, yb, pz + tz * hw], [px + tx * hw, yt, pz + tz * hw],
+               [px - tx * hw, yt, pz - tz * hw], [nx, 0, nz], [u0, v0, u1, v0, u1, v1, u0, v1])
+      // 骨組み（裏側の柱）
+      for (const s of [-0.8, 0, 0.8]) {
+        const fx = px + tx * hw * s - nx * 0.6, fz = pz + tz * hw * s - nz * 0.6
+        adFrameB.box(fx - 0.15, top, fz - 0.15, fx + 0.15, yt, fz + 0.15, 1)
+      }
+    }
     // 高いビルは屋上にアンテナ
     if (B.h > 80) {
       const cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2
@@ -306,6 +338,7 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     }
   }
   const wallMats: THREE.MeshStandardMaterial[] = []
+  const wallByStyle = new Map<Style, THREE.MeshStandardMaterial>()
   for (const s of STYLES) {
     const g = wallBuilders[s]
     if (g.empty) continue
@@ -317,6 +350,7 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
       envMapIntensity: 0.4,
     }))
     wallMats.push(mat)
+    wallByStyle.set(s, mat)
     const mesh = new THREE.Mesh(keep(g.build()), mat)
     mesh.castShadow = true
     mesh.receiveShadow = true
@@ -336,6 +370,14 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     map: t.map, emissiveMap: t.emissive, emissive: 0xffffff, emissiveIntensity: 0.3, roughness: 0.4, side: THREE.DoubleSide,
   }))
   const signMat = glowMat(signs)
+  const adMat = glowMat(ads)
+  if (!adB.empty) {
+    const adMesh = new THREE.Mesh(keep(adB.build()), adMat)
+    group.add(adMesh)
+    const frame = new THREE.Mesh(keep(adFrameB.build()), keep(new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.6, roughness: 0.5 })))
+    frame.castShadow = true
+    group.add(frame)
+  }
   const vendMat = glowMat(vend)
   for (const [g, m] of [[signB, signMat], [vendB, vendMat]] as const) {
     if (g.empty) continue
@@ -350,7 +392,8 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
   roofMesh.receiveShadow = true
   group.add(roofMesh)
   const tiles = keep(TX.roofTiles())
-  const tileMesh = new THREE.Mesh(keep(tileB.build()), keep(new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.7, side: THREE.DoubleSide, color: theme.snow ? 0xe8edf2 : 0xffffff })))
+  const tileMat = keep(new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.7, side: THREE.DoubleSide, color: theme.snow ? 0xe8edf2 : 0xffffff }))
+  const tileMesh = new THREE.Mesh(keep(tileB.build()), tileMat)
   tileMesh.castShadow = true
   tileMesh.receiveShadow = true
   group.add(tileMesh)
@@ -478,11 +521,42 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
   return {
     group,
     water,
+    applyPhotos(photos: Photos) {
+      // 床: 写真の色・凹凸・つや。UV は「世界の座標 ÷ 何 m」なので、repeat で 1 枚が何 m になるかを決める
+      const floor = (mat: THREE.MeshStandardMaterial, name: keyof Photos, r: number, normal = 1) => {
+        const ph = photos[name]
+        mat.map = repeated(ph.diff, r)
+        mat.normalMap = repeated(ph.nor, r)
+        mat.normalScale = new THREE.Vector2(normal, normal)
+        mat.roughnessMap = repeated(ph.rough, r)
+        mat.needsUpdate = true
+        for (const t of [mat.map, mat.normalMap, mat.roughnessMap]) keep(t)
+      }
+      floor(roadMat, 'asphalt', 4, 1.2) // 道路の UV は 12m ごと → 1 枚 3m
+      roadMat.roughness = 1 - theme.wet * 0.55
+      floor(paveMat, 'pavers', 2) // 歩道の UV は 4m ごと → 1 枚 2m
+      if (!theme.snow) floor(grassMat, 'grass', 3)
+      floor(concreteMat, 'concrete', 1)
+      concreteMat.color.set(0xffffff)
+      floor(roofMat, 'gravel', 2)
+      floor(tileMat, 'roof', 1.5)
+      // 壁: 窓の絵はそのまま、壁の部分だけ写真の質感に（ガラス張りのビルはそのまま）
+      const walls: [Style, keyof Photos, number][] = [
+        ['office', 'tiles', 2.2], ['concrete', 'concrete', 3], ['brick', 'brick', 2], ['warehouse', 'iron', 2.5], ['house', 'plaster', 2.5],
+      ]
+      for (const [style, photo, meters] of walls) {
+        const mat = wallByStyle.get(style)
+        if (!mat) continue
+        const f = TX.FACADE_SPECS[style]
+        addWallDetail(mat, photos[photo], (f.bay * 8) / meters, (f.floor * 8) / meters)
+      }
+    },
     setNight(n: number) {
       night = n
       for (const m of wallMats) m.emissiveIntensity = n * 1.25
       for (const m of shopMats) m.emissiveIntensity = 0.12 + n * 1.3
       signMat.emissiveIntensity = 0.25 + n * 1.8
+      adMat.emissiveIntensity = 0.2 + n * 1.6
       vendMat.emissiveIntensity = 0.5 + n * 1.2
       lampHeadMat.emissiveIntensity = n * 3.2
       poolMat.opacity = n * 0.42

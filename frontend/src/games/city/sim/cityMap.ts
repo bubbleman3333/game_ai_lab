@@ -69,7 +69,7 @@ export interface Building {
   seed: number
 }
 
-export type PropKind = 'lamp' | 'tree' | 'signal'
+export type PropKind = 'lamp' | 'tree' | 'signal' | 'pole'
 export interface Prop {
   kind: PropKind
   x: number; z: number
@@ -118,9 +118,25 @@ export class CityMap {
   readonly props: Prop[] = []
   /** 公園の中の散歩道（見た目だけ） */
   readonly paths: Box[] = []
+  /**
+   * 植え込み（見た目だけ。当たり判定なし）。
+   *   box   繁華街の歩道のコンクリートの鉢植え
+   *   hedge 住宅の敷地ぞいの生け垣
+   *   bush  公園の茂み
+   */
+  /**
+   * 目印になる建物（公園に置く）。tower = 電波塔、shrine = 神社、pond = 池と噴水。
+   * 見た目は scene/landmarks.ts、当たり判定の箱は solids
+   */
+  readonly landmarks: { kind: 'tower' | 'shrine' | 'pond'; x: number; z: number }[] = []
+  /** 建物ではないが、ぶつかる物（電波塔の脚・鳥居の柱・社殿） */
+  readonly solids: Box[] = []
+  /** 電線の張られた電柱の並び（住宅街）。見た目用に、つながる順に並べたもの */
+  readonly wireRuns: [number, number][][] = []
+  readonly planters: { x: number; z: number; yaw: number; kind: 'box' | 'hedge' | 'bush'; scale: number; variant: number }[] = []
   /** 護岸（外周の壁） */
   readonly walls: Box[] = []
-  private grid: { b: number[]; p: number[] }[]
+  private grid: { b: number[]; p: number[]; s: number[] }[]
   private gridHalf: number
   private gridN: number
   readonly config: MapConfig
@@ -143,6 +159,9 @@ export class CityMap {
       }
     }
     this.placeSignals()
+    this.placePlanters(makeRng(config.seed ^ 0x77))
+    this.placeLandmarks()
+    this.placePoles()
     const t = 6
     const s = SEAWALL
     this.walls.push(
@@ -151,8 +170,9 @@ export class CityMap {
       { x0: -s - t, z0: -s, x1: -s, z1: s },
       { x0: s, z0: -s, x1: s + t, z1: s },
     )
-    this.grid = Array.from({ length: this.gridN * this.gridN }, () => ({ b: [], p: [] }))
+    this.grid = Array.from({ length: this.gridN * this.gridN }, () => ({ b: [], p: [], s: [] }))
     this.buildings.forEach((b, i) => this.eachCell(b.x0, b.z0, b.x1, b.z1, (c) => c.b.push(i)))
+    this.solids.forEach((b, i) => this.eachCell(b.x0, b.z0, b.x1, b.z1, (c) => c.s.push(i)))
     this.props.forEach((p, i) => this.eachCell(p.x - p.r, p.z - p.r, p.x + p.r, p.z + p.r, (c) => c.p.push(i)))
   }
 
@@ -264,6 +284,91 @@ export class CityMap {
     }
   }
 
+  /**
+   * 公園に目印を置く。中心街にいちばん近い公園に電波塔、次に神社、その次に池。
+   * 公園が足りなければ置けるぶんだけ
+   */
+  private placeLandmarks() {
+    const parks = this.blocks.filter((b) => b.district === 'park')
+      .sort((a, b) => Math.hypot(a.bi - this.dt.x, a.bj - this.dt.z) - Math.hypot(b.bi - this.dt.x, b.bj - this.dt.z))
+    const kinds = ['tower', 'shrine', 'pond'] as const
+    parks.slice(0, 3).forEach((b, k) => {
+      const kind = kinds[k]
+      // 公園の十字の散歩道を避けて、4 分の 1 の区画の真ん中に置く
+      const x = b.cx + 17, z = b.cz + 17
+      this.landmarks.push({ kind, x, z })
+      if (kind === 'tower') {
+        for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const lx = x + sx * 9, lz = z + sz * 9
+          this.solids.push({ x0: lx - 1.2, z0: lz - 1.2, x1: lx + 1.2, z1: lz + 1.2 })
+        }
+      } else if (kind === 'shrine') {
+        // 社殿と、その前の鳥居の 2 本の柱
+        this.solids.push({ x0: x - 5, z0: z + 2, x1: x + 5, z1: z + 10 })
+        for (const sx of [-2.4, 2.4]) this.solids.push({ x0: x + sx - 0.35, z0: z - 12.35, x1: x + sx + 0.35, z1: z - 11.65 })
+      }
+    })
+  }
+
+  /** 住宅街の電柱。道路の片側に 30m おきに立て、電線でつなぐ */
+  private placePoles() {
+    for (const block of this.blocks) {
+      if (block.district !== 'residential') continue
+      const edge = BLOCK_HALF - 0.45
+      for (const side of [0, 1]) { // 区画の +x 側と +z 側の道路ぞい（隣の区画と重ならないように片側だけ）
+        const [nx, nz] = DIRS[side]
+        const [tx, tz] = [-nz, nx]
+        const run: [number, number][] = []
+        for (const t of [-36, -12, 12, 36]) {
+          const x = block.cx + nx * edge + tx * t, z = block.cz + nz * edge + tz * t
+          run.push([x, z])
+          this.props.push({ kind: 'pole', x, z, r: 0.2, yaw: Math.atan2(nx, nz), breakable: false, scale: 1 })
+        }
+        this.wireRuns.push(run)
+      }
+    }
+  }
+
+  /** 植え込みを並べる（別の乱数を使うので、建物の並びは変わらない） */
+  private placePlanters(rng: Rng) {
+    const edge = LOT_HALF + 0.9
+    for (const block of this.blocks) {
+      const d = block.district
+      if (d === 'park') {
+        for (let k = 0; k < 40; k++) {
+          const x = range(rng, -LOT_HALF + 2, LOT_HALF - 2), z = range(rng, -LOT_HALF + 2, LOT_HALF - 2)
+          if (Math.abs(x) < 3.5 || Math.abs(z) < 3.5) continue
+          this.planters.push({ x: block.cx + x, z: block.cz + z, yaw: rng() * 6.28, kind: 'bush', scale: range(rng, 0.9, 1.8), variant: Math.floor(rng() * 3) })
+        }
+        continue
+      }
+      if (d === 'industrial') continue
+      for (let side = 0; side < 4; side++) {
+        const [nx, nz] = DIRS[side]
+        const [tx, tz] = [-nz, nx]
+        if (d === 'residential') {
+          // 敷地のふちに沿って生け垣（ところどころ途切れる）
+          for (let t = -LOT_HALF + 1; t <= LOT_HALF - 1; t += 1.6) {
+            if (chance(rng, 0.3)) continue
+            this.planters.push({
+              x: block.cx + nx * (LOT_HALF - 0.6) + tx * t, z: block.cz + nz * (LOT_HALF - 0.6) + tz * t,
+              yaw: rng() * 6.28, kind: 'hedge', scale: range(rng, 0.8, 1.1), variant: Math.floor(rng() * 3),
+            })
+          }
+          continue
+        }
+        // 繁華街・オフィス街: 建物の前の歩道にコンクリートの鉢植え
+        for (let t = -30; t <= 30; t += 10) {
+          if (chance(rng, 0.35)) continue
+          this.planters.push({
+            x: block.cx + nx * edge + tx * t, z: block.cz + nz * edge + tz * t,
+            yaw: Math.atan2(nx, nz), kind: 'box', scale: range(rng, 0.9, 1.1), variant: Math.floor(rng() * 3),
+          })
+        }
+      }
+    }
+  }
+
   /** 信号。交差点に入ってくる向きごとに 1 本、向こう側の左の角に立てる */
   private placeSignals() {
     const c = ROAD_HALF + 0.9
@@ -294,7 +399,7 @@ export class CityMap {
     return cz * this.gridN + cx
   }
 
-  private eachCell(x0: number, z0: number, x1: number, z1: number, fn: (c: { b: number[]; p: number[] }) => void) {
+  private eachCell(x0: number, z0: number, x1: number, z1: number, fn: (c: { b: number[]; p: number[]; s: number[] }) => void) {
     const h = this.gridHalf, n = this.gridN
     const a0 = Math.max(Math.floor(x0 / CELL) + h, 0)
     const a1 = Math.min(Math.floor(x1 / CELL) + h, n - 1)
@@ -307,11 +412,14 @@ export class CityMap {
   private stamp = 1
   private bStamp: number[] = []
   private pStamp: number[] = []
-  near(x: number, z: number, r: number, buildings: number[], props: number[]): void {
+  private sStamp: number[] = []
+  near(x: number, z: number, r: number, buildings: number[], props: number[], solids?: number[]): void {
     buildings.length = 0
     props.length = 0
+    if (solids) solids.length = 0
     this.stamp++
     this.eachCell(x - r, z - r, x + r, z + r, (c) => {
+      if (solids) for (const b of c.s) if (this.sStamp[b] !== this.stamp) { this.sStamp[b] = this.stamp; solids.push(b) }
       for (const b of c.b) if (this.bStamp[b] !== this.stamp) { this.bStamp[b] = this.stamp; buildings.push(b) }
       for (const p of c.p) if (this.pStamp[p] !== this.stamp) { this.pStamp[p] = this.stamp; props.push(p) }
     })
@@ -323,6 +431,10 @@ export class CityMap {
     if (i < 0) return true
     for (const b of this.grid[i].b) {
       const B = this.buildings[b]
+      if (x > B.x0 - pad && x < B.x1 + pad && z > B.z0 - pad && z < B.z1 + pad) return true
+    }
+    for (const b of this.grid[i].s) {
+      const B = this.solids[b]
       if (x > B.x0 - pad && x < B.x1 + pad && z > B.z0 - pad && z < B.z1 + pad) return true
     }
     return Math.abs(x) > SEAWALL || Math.abs(z) > SEAWALL

@@ -355,8 +355,29 @@ const SIGN_COLORS = ['#e8413c', '#2e7fd9', '#1fa05a', '#f0a020', '#b23ad1', '#e8
 /** 店が並んだ 1 階（幅 32m・高さ 4.5m ぶん。8 軒） */
 export const SHOP_WIDTH = 32
 export const SHOP_HEIGHT = 4.5
-export function shopfront(variant = 0): FacadeTextures {
-  const rng = makeRng(77 + variant * 1013)
+/**
+ * 地区ごとの店の並び。
+ *   downtown  銀行・ホテル・ブランド店・宝石店。黒い石の壁に金の文字、大きなガラス
+ *   nightlife 飲み屋街。居酒屋・ラーメン・パチンコ・カラオケ。赤ちょうちん・のれん・派手な看板
+ *   local     住宅街の商店。八百屋・クリーニング・美容室。色あせた看板、シャッターの下りた店も
+ */
+export type ShopTheme = 'downtown' | 'nightlife' | 'local'
+const THEME_NAMES: Record<ShopTheme, string[]> = {
+  downtown: ['銀行', 'BANK', 'HOTEL', 'ホテル', '宝石', 'JEWELRY', 'BOUTIQUE', 'ブティック', '証券', 'GALLERY', '時計',
+    'STEAK', 'CAFE', 'WINE', '百貨店', 'BRAND', '家具', 'FLORIST', '書店', 'PHARMACY', 'COSMETICS', '眼鏡'],
+  nightlife: ['居酒屋', '焼鳥', 'ラーメン', 'パチンコ', 'カラオケ', '焼肉', '寿司', 'BAR', '牛丼', 'スナック', '串カツ',
+    'ホルモン', 'ゲーム', '漫画喫茶', '中華', '餃子', 'たこ焼', 'おでん', '立ち飲み', 'パブ', 'もつ鍋', '天ぷら'],
+  local: ['八百屋', '魚屋', '精肉店', 'クリーニング', '美容室', '理容', '薬局', '本屋', '花屋', '和菓子', '豆腐', '酒店',
+    '自転車', '不動産', '整骨院', '文具', 'パン', '米屋', '金物', 'コインランドリー', '歯科', '喫茶'],
+}
+const THEME_WALLS: Record<ShopTheme, number[]> = {
+  downtown: [0x1c1c1f, 0x2a2622, 0x3a3530, 0x151a20, 0x4a4640],
+  nightlife: [0x2a1e1a, 0x3a2a20, 0x1e1a24, 0x4a2a22, 0x222226],
+  local: [0x8a8478, 0x6e6a60, 0x9a9282, 0x5a5850, 0x7a7266],
+}
+
+export function shopfront(variant = 0, theme: ShopTheme = 'nightlife'): FacadeTextures {
+  const rng = makeRng(77 + variant * 1013 + theme.length * 7919)
   const W = 2048, H = 288
   const [cm, gm] = canvas(W, H)
   const [cr, gr] = canvas(W / 2, H / 2)
@@ -366,63 +387,187 @@ export function shopfront(variant = 0): FacadeTextures {
   gr.fillStyle = '#d0d0d0'
   gr.fillRect(0, 0, W / 2, H / 2)
   const sw = W / 8
-  for (let k = 0; k < 8; k++) {
-    const x = k * sw
-    const wall = pick(rng, [0x3a3a3c, 0x5a5048, 0x2a2e33, 0x6b6660, 0x1e1e20])
-    gm.fillStyle = hex(wall)
-    gm.fillRect(x, 0, sw, H)
-    // 看板
-    const sign = pick(rng, SIGN_COLORS)
-    const dark = sign === '#fafafa'
-    gm.fillStyle = sign
-    gm.fillRect(x + 10, 10, sw - 20, 58)
-    gm.fillStyle = dark ? '#222' : '#fff'
-    gm.font = 'bold 40px "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif'
+  const font = (px: number, serif = false) =>
+    `bold ${px}px ${serif ? '"Yu Mincho", "Hiragino Mincho ProN", serif' : '"Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif'}`
+  const text = (t: string, x: number, y: number, color: string, px: number, serif = false, glow = true) => {
+    gm.fillStyle = color
+    gm.font = font(px, serif)
     gm.textAlign = 'center'
     gm.textBaseline = 'middle'
-    const name = pick(rng, SHOP_NAMES)
-    gm.fillText(name, x + sw / 2, 40)
-    ge.fillStyle = sign
-    ge.fillRect((x + 10) / 2, 5, (sw - 20) / 2, 29)
-    ge.fillStyle = dark ? '#222' : '#fff'
-    ge.font = 'bold 20px sans-serif'
-    ge.textAlign = 'center'
-    ge.textBaseline = 'middle'
-    ge.fillText(name, (x + sw / 2) / 2, 20)
-    // ショーウィンドウと入口
+    gm.fillText(t, x, y, sw - 30)
+    if (glow) {
+      ge.fillStyle = color
+      ge.font = font(px / 2, serif)
+      ge.textAlign = 'center'
+      ge.textBaseline = 'middle'
+      ge.fillText(t, x / 2, y / 2, (sw - 30) / 2)
+    }
+  }
+  for (let k = 0; k < 8; k++) {
+    const x = k * sw
+    const wall = pick(rng, THEME_WALLS[theme])
+    gm.fillStyle = hex(wall)
+    gm.fillRect(x, 0, sw, H)
+    const name = pick(rng, THEME_NAMES[theme])
     const glassY = 84
-    const lit = pick(rng, ['#fff1d6', '#e8f4ff', '#ffe3b8', '#f7fff0'])
+    const closed = theme === 'local' && rng() < 0.25 // シャッターが下りている
+    // --- 看板 ---
+    if (theme === 'downtown') {
+      gm.fillStyle = '#0c0c0e'
+      gm.fillRect(x + 10, 12, sw - 20, 56)
+      text(name, x + sw / 2, 40, pick(rng, ['#d8b46a', '#e8e8e8', '#c8a050']), 34, rng() < 0.5)
+    } else if (theme === 'nightlife') {
+      const sign = pick(rng, ['#e8413c', '#f0a020', '#b23ad1', '#e85a9a', '#22b5c4', '#1fa05a', '#fafafa'])
+      gm.fillStyle = sign
+      gm.fillRect(x + 8, 8, sw - 16, 62)
+      ge.fillStyle = sign
+      ge.fillRect((x + 8) / 2, 4, (sw - 16) / 2, 31)
+      // 看板のふちの電球
+      for (let b = 0; b < 12; b++) {
+        ge.fillStyle = '#fff6c0'
+        ge.fillRect((x + 12 + b * ((sw - 24) / 11)) / 2, 5, 2, 2)
+      }
+      text(name, x + sw / 2, 40, sign === '#fafafa' ? '#c01818' : '#fff', 42, rng() < 0.4)
+    } else {
+      const sign = pick(rng, ['#f2efe6', '#e8e2c8', '#d8e4e8', '#f0e0d0'])
+      gm.fillStyle = sign
+      gm.fillRect(x + 14, 14, sw - 28, 52)
+      gm.fillStyle = 'rgba(80,60,40,0.15)' // 色あせ・汚れ
+      gm.fillRect(x + 14, 50, sw - 28, 16)
+      text(name, x + sw / 2, 40, pick(rng, ['#2a4a8a', '#8a2a2a', '#2a6a3a', '#333']), 36, rng() < 0.5, false)
+    }
+    // --- ショーウィンドウ・シャッター ---
+    if (closed) {
+      for (let y = glassY; y < H - 12; y += 6) {
+        gm.fillStyle = y % 12 ? '#9a9ea4' : '#7e8288'
+        gm.fillRect(x + 12, y, sw - 24, 6)
+      }
+      gm.fillStyle = 'rgba(40,40,40,0.25)'
+      gm.fillRect(x + 12, H - 40, sw - 24, 28)
+      continue
+    }
+    const lit = pick(rng, theme === 'nightlife' ? ['#ffd9a0', '#ffb070', '#ffe3b8'] : ['#fff1d6', '#e8f4ff', '#f7fff0'])
     const grd = gm.createLinearGradient(0, glassY, 0, H - 12)
-    grd.addColorStop(0, '#6c7a86')
+    grd.addColorStop(0, theme === 'downtown' ? '#8894a0' : '#6c7a86')
     grd.addColorStop(1, '#27303a')
     gm.fillStyle = grd
     gm.fillRect(x + 12, glassY, sw - 24, H - glassY - 12)
     gr.fillStyle = '#151515'
     gr.fillRect((x + 12) / 2, glassY / 2, (sw - 24) / 2, (H - glassY - 12) / 2)
     ge.fillStyle = lit
-    ge.globalAlpha = range(rng, 0.5, 0.9)
+    ge.globalAlpha = range(rng, 0.45, 0.9)
     ge.fillRect((x + 12) / 2, glassY / 2, (sw - 24) / 2, (H - glassY - 12) / 2)
     ge.globalAlpha = 1
-    // 中の棚（影）
-    for (let s = 0; s < 3; s++) {
-      gm.fillStyle = 'rgba(0,0,0,0.25)'
-      gm.fillRect(x + 20 + rng() * (sw - 80), glassY + 60 + s * 40, range(rng, 30, 80), 10)
+    // 店の中（棚・商品・人影）
+    for (let n = 0; n < 5; n++) {
+      gm.fillStyle = pick(rng, ['rgba(0,0,0,0.25)', 'rgba(120,60,40,0.3)', 'rgba(40,60,120,0.3)', 'rgba(200,180,120,0.3)'])
+      gm.fillRect(x + 20 + rng() * (sw - 80), glassY + 40 + rng() * 120, range(rng, 20, 70), range(rng, 8, 40))
     }
     gm.fillStyle = hex(wall)
     gm.fillRect(x + sw * 0.62, glassY, 8, H - glassY - 12)
-    // 入口のドア
     gm.fillStyle = '#20262c'
     gm.fillRect(x + sw * 0.66, glassY + 10, sw * 0.26, H - glassY - 22)
-    // 日よけ
-    if (rng() < 0.6) {
-      const aw = pick(rng, ['#9a2a2a', '#2a5a9a', '#2e6b3e', '#c58b2a', '#444'])
-      for (let s = 0; s < 12; s++) {
-        gm.fillStyle = s % 2 ? aw : '#e8e3d8'
-        gm.fillRect(x + 12 + s * ((sw - 24) / 12), 70, (sw - 24) / 12, 16)
+    // --- 地区ごとの飾り ---
+    if (theme === 'nightlife') {
+      // のれん（紺や茶の布に白い文字）
+      if (rng() < 0.6) {
+        const noren = pick(rng, ['#1e2a50', '#4a2a1a', '#2a2a2a', '#7a1a1a'])
+        for (let s2 = 0; s2 < 4; s2++) {
+          gm.fillStyle = noren
+          gm.fillRect(x + sw * 0.66 + s2 * (sw * 0.065), glassY + 10, sw * 0.06, 70)
+        }
+        gm.fillStyle = '#f0ece0'
+        gm.font = font(22)
+        gm.textAlign = 'center'
+        gm.fillText(name.slice(0, 2), x + sw * 0.79, glassY + 48)
       }
+      // 赤ちょうちん
+      if (rng() < 0.7) {
+        for (const cx of [x + 30, x + sw * 0.55]) {
+          const g2 = gm.createRadialGradient(cx, glassY + 26, 4, cx, glassY + 26, 22)
+          g2.addColorStop(0, '#ff6040')
+          g2.addColorStop(1, '#a01810')
+          gm.fillStyle = g2
+          gm.beginPath()
+          gm.ellipse(cx, glassY + 26, 16, 22, 0, 0, Math.PI * 2)
+          gm.fill()
+          ge.fillStyle = '#ff5030'
+          ge.beginPath()
+          ge.ellipse(cx / 2, (glassY + 26) / 2, 8, 11, 0, 0, Math.PI * 2)
+          ge.fill()
+        }
+      }
+    } else if (theme === 'local' && rng() < 0.6) {
+      // 日よけ
+      const aw = pick(rng, ['#9a2a2a', '#2a5a9a', '#2e6b3e', '#c58b2a', '#6a6a6a'])
+      for (let s2 = 0; s2 < 12; s2++) {
+        gm.fillStyle = s2 % 2 ? aw : '#e8e3d8'
+        gm.fillRect(x + 12 + s2 * ((sw - 24) / 12), 70, (sw - 24) / 12, 16)
+      }
+      // 店先の商品（八百屋の箱など）
+      for (let n = 0; n < 6; n++) {
+        gm.fillStyle = pick(rng, ['#d04020', '#e0a020', '#40a040', '#a06030', '#f0f0f0'])
+        gm.fillRect(x + 16 + n * 22, H - 50, 18, 30)
+      }
+    } else if (theme === 'downtown') {
+      // 大理石の柱
+      gm.fillStyle = 'rgba(230,225,215,0.5)'
+      gm.fillRect(x + 4, glassY - 8, 8, H - glassY)
+      gm.fillRect(x + sw - 12, glassY - 8, 8, H - glassY)
     }
   }
   return { map: toTexture(cm), rough: toTexture(cr, false), emissive: toTexture(ce) }
+}
+
+/** 屋上の広告看板（8 枚を 1 枚の絵に。2 列 × 4 行） */
+export function billboardAtlas(): FacadeTextures {
+  const rng = makeRng(909)
+  const W = 2048, H = 2048
+  const [cm, gm] = canvas(W, H)
+  const [ce, ge] = canvas(W / 2, H / 2)
+  const [cr, gr] = canvas(8, 8)
+  gr.fillStyle = '#555'
+  gr.fillRect(0, 0, 8, 8)
+  const ADS: [string, string, string, string][] = [
+    ['冷えてる、うまい。', 'ICE BEER', '#0a3a8a', '#ffe040'],
+    ['お金のことなら', 'スマイルローン', '#ffffff', '#e03020'],
+    ['新発売', 'エナジー ZERO', '#101010', '#40ff80'],
+    ['映画「逃がし屋」', '全国ロードショー', '#1a1a2a', '#ffffff'],
+    ['駅徒歩 3 分', 'グランドタワー分譲中', '#f0ece0', '#2a3a5a'],
+    ['24時間営業', 'カラオケ ONE', '#8a1a8a', '#ffffff'],
+    ['つながる、はやい。', 'NEO MOBILE', '#e8f0ff', '#0050d0'],
+    ['本場の味', '博多ラーメン 一番', '#1a1a1a', '#f0b020'],
+  ]
+  ADS.forEach(([sub, main, bg, fg], k) => {
+    const x = (k % 2) * (W / 2), y = Math.floor(k / 2) * (H / 4)
+    const w = W / 2, h = H / 4
+    gm.fillStyle = bg
+    gm.fillRect(x, y, w, h)
+    // 背景の模様
+    for (let n = 0; n < 6; n++) {
+      gm.fillStyle = `rgba(255,255,255,${range(rng, 0.03, 0.1)})`
+      gm.beginPath()
+      gm.arc(x + rng() * w, y + rng() * h, range(rng, 40, 160), 0, Math.PI * 2)
+      gm.fill()
+    }
+    ge.fillStyle = bg
+    ge.globalAlpha = 0.7
+    ge.fillRect(x / 2, y / 2, w / 2, h / 2)
+    ge.globalAlpha = 1
+    for (const [g, sc] of [[gm, 1], [ge, 0.5]] as const) {
+      g.fillStyle = fg
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.font = `bold ${56 * sc}px "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`
+      g.fillText(sub, (x + w / 2) * sc, (y + h * 0.3) * sc)
+      g.font = `900 ${110 * sc}px "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`
+      g.fillText(main, (x + w / 2) * sc, (y + h * 0.65) * sc, (w - 60) * sc)
+    }
+    gm.strokeStyle = '#222'
+    gm.lineWidth = 12
+    gm.strokeRect(x + 6, y + 6, w - 12, h - 12)
+  })
+  return { map: toTexture(cm, true, false), rough: toTexture(cr, false), emissive: toTexture(ce, true, false) }
 }
 
 // --- 光 ----------------------------------------------------------------------------------

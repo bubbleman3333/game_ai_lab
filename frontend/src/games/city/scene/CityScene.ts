@@ -28,6 +28,9 @@ import { PedModels } from './pedModels'
 import { PedSkinned } from './pedSkinned'
 import { buildHeli, type HeliModel } from './heliModel'
 import { buildScenery, type Scenery } from './scenery'
+import { loadPhotos } from './photoTextures'
+import { Plants } from './plants'
+import { buildLandmarks, type Landmarks } from './landmarks'
 import * as TX from './textures'
 import { THEMES, type CityTheme } from './themes'
 
@@ -63,6 +66,11 @@ export class CityScene {
   private city: CityModel
   private scenery: Scenery
   private heli: HeliModel | null = null
+  private disposers: (() => void)[] = []
+  /** 植え込みの低木（写真スキャンのモデル） */
+  private plants: Plants
+  /** 電波塔・神社・池・電柱 */
+  private landmarks: Landmarks
   /** 壊した店の跡（ガラスの割れた店内の絵・散らばった商品） */
   private smashedShown = 0
   private smashTex = TX.smashedShop()
@@ -152,6 +160,16 @@ export class CityScene {
 
     this.city = buildCity(game.map, this.theme)
     this.scenery = buildScenery(game.config)
+    this.plants = new Plants(game.map, new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: 0.85 }))
+    this.scene.add(this.plants.group)
+    this.landmarks = buildLandmarks(game.map)
+    this.scene.add(this.landmarks.group)
+    // 写真のテクスチャは読み込めしだい差し替える（読み込み中も遊べる）
+    const city = this.city
+    let alive = true
+    this.disposers.push(() => { alive = false })
+    void loadPhotos(this.renderer.capabilities.getMaxAnisotropy()).then((ph) => { if (alive) city.applyPhotos(ph) })
+      .catch((e) => console.warn('写真テクスチャを読み込めなかった', e))
     this.scene.add(this.city.group, this.scenery.group, this.smashGroup)
     this.effects = new Effects(this.theme.weather)
     this.scene.add(this.peds.group, this.skinned.group, this.effects.group, this.markers)
@@ -232,8 +250,10 @@ export class CityScene {
     setCarNight(n, this.glowTex)
     if (this.bloom) {
       // 昼は控えめ（白線や壁までにじむので）、夜は街の明かりがにじむように
-      this.bloom.strength = 0.12 + n * 0.8
-      this.bloom.threshold = 0.97 - n * 0.27
+      // にじませる明るさの境目はトーンマッピング前の明るさ。昼の日なたは 2〜3 あるので、
+      // 昼は境目を高くして（太陽の映り込みなど本当に強い光だけ）、夜は街の明かりがにじむように下げる
+      this.bloom.strength = 0.1 + n * 0.8
+      this.bloom.threshold = 3.5 - n * 2.75
     }
 
     // 空が大きく変わったら映り込みを作り直す（毎フレームは重いので間引く）
@@ -546,6 +566,8 @@ export class CityScene {
     }
 
     this.updateSmashed()
+    this.plants.update(dt, g.player.body.x, g.player.body.z)
+    this.landmarks.update(dt, this.time, this.night)
 
     // 景色（観覧車・灯台・船・雲）
     this.scenery.update(dt, this.time, n, this.sun.color)
@@ -616,6 +638,9 @@ export class CityScene {
   }
 
   dispose(): void {
+    for (const d of this.disposers) d()
+    this.plants.dispose()
+    this.landmarks.dispose()
     this.skinned.dispose()
     this.heli?.dispose()
     this.smashTex.dispose(); this.smashMat.dispose(); this.smashGeo.dispose(); this.goodsGeo.dispose(); this.goodsMat.dispose()

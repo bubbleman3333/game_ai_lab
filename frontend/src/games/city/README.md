@@ -14,6 +14,8 @@
 |---|---|---|
 | セリフの声（物語・警官・野次馬・悲鳴、約 100 本） | `public/city/voice/` | VOICEVOX で作成（下の「声の作り方」）。**クレジット表記が必要**（タイトル画面の下に表示している） |
 | 人の 3D モデル（骨格・24 種類の動きつき） | `public/city/people/` | Quaternius「Ultimate Modular Men Pack」「Ultimate Modular Women Pack」（CC0）。poly.pizza から glb を取得 |
+| 地面と壁の写真テクスチャ（色・凹凸・つや） | `public/city/tex/` | Poly Haven（CC0）: asphalt_02 / square_concrete_pavers / concrete_wall_008 / red_brick_03 / rectangular_facade_tiles / leafy_grass / corrugated_iron_02 / gravel_concrete / grey_roof_tiles / white_plaster_rough_02 |
+| 植え込みの低木 | `public/city/plants/` | Poly Haven（CC0）: shrub_02 / shrub_03 / shrub_04 |
 | 効果音の一部（ガラス・金属・打撃・ドア・クラクション・車の流れ） | `public/city/sfx/` | OpenGameArt.org「75 CC0 breaking / falling / hit sfx」「100 CC0 SFX #2」「Car Sound Effects Pack (Low Quality)」（CC0） |
 
 エンジン・タイヤ・サイレン・ヘリ・爆発などの音は、今も Web Audio で合成している（録音が無い音）。
@@ -61,6 +63,9 @@ pages → components → scene / audio / speech → sim
 | `scene/pedSkinned.ts` | **近くの人**（約 36 人）を、骨格つきの人のモデルとアニメーションで描く |
 | `scene/pedModels.ts` | 遠くの人（軽いモデル。関節で曲がる手足・顔の絵）。部品ごとに InstancedMesh |
 | `scene/heliModel.ts` | ヘリの 3D |
+| `scene/photoTextures.ts` | 写真テクスチャの読み込みと、壁の窓以外の部分だけに写真の質感を重ねるシェーダーの追加 |
+| `scene/plants.ts` | 植え込みの低木（近くだけ描く） |
+| `scene/landmarks.ts` | 電波塔・神社・池と噴水・住宅街の電柱と電線 |
 | `scene/scenery.ts` | 街の外の景色（観覧車・灯台・クレーン・吊り橋・船・島の夜景・雲） |
 | `scene/effects.ts` | 煙・火・火花・爆発・ガラス片・タイヤ痕・弾の筋・水しぶき・雨と雪 |
 | `scene/themes.ts` | 街ごとの見た目（天気・霧・雪・濡れた路面） |
