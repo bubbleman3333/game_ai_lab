@@ -34,8 +34,10 @@
   飛んだら「新しいテーブル」を押す。
 - 濃い緑のテーブルの上では `--text-muted` や `--win` がそのままだと読みにくいので、
   `.poker-felt` の中だけ明るい色に上書きしている（`styles.css`）。
-- AI の一覧（`agents`）には `family` が入っている（`neural` = ニューラルネット、
-  `table` = 表形式、`heuristic` = 比較用のルールベース）。`detail` は「学習した対局 1,200,000」
-  のような一言で、そのまま出せばよい。
+- AI の一覧（`agents`）には `family` が入っている（`search` = ネットを土台にその場でソルバーで解く
+  **本命**、`neural` = ニューラルネットだけ、`table` = 表形式、`heuristic` = 比較用のルールベース）。
+  `detail` は「学習した対局 1,200,000」のような一言で、そのまま出せばよい。
+- `search` の AI は **1 手に 1〜2 秒**かかる（サーバーで CFR+ を数百回反復している）。
+  `busy` の間は操作を止めるだけでよい。
 - AI の中身の説明は `PokerPage.tsx` の一番下のカードにある。
   詳しくは [backend/rl/poker/README.md](../../../../backend/rl/poker/README.md)。

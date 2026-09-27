@@ -12,8 +12,11 @@ export interface PokerAgentDto {
   label: string
   run: string | null
   kind: 'best' | 'latest' | 'heuristic'
-  /** neural = ニューラルネット（Deep CFR）、table = 表形式の CFR、heuristic = ルールベース */
-  family: 'neural' | 'table' | 'heuristic'
+  /**
+   * search = ネットを土台にその場でソルバーで解く（本命）、neural = ニューラルネット（Deep CFR）だけ、
+   * table = 表形式の CFR、heuristic = ルールベース
+   */
+  family: 'search' | 'neural' | 'table' | 'heuristic'
   /** 画面に出す一言（学習量など） */
   detail: string
 }

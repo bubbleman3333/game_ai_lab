@@ -172,3 +172,36 @@ def test_AIが手を混ぜた確率は局が終わるまで見せない(client):
         view = client.post(f"/api/poker/tables/{view['table_id']}/action/", {"kind": kind},
                            format="json").json()
     assert view["finished"]
+
+
+@pytest.mark.django_db
+def test_その場で解くAIはレンジを局の途中で持ち越す(client, monkeypatch):
+    """`SearchPlayer` はリクエストごとに作り直されるので、テーブルにレンジを保存して続きから使う。"""
+    from rl.poker import search
+    from rl.poker.model import PokerNet
+    from apps.poker import agent_registry
+
+    net = PokerNet(5, hidden=8, layers=1).to_numpy()
+    fast = search.fast_settings()
+
+    def fake_policy(agent_id, seed=0):
+        return search.search_player(net, seed=seed, settings=fast)
+
+    monkeypatch.setattr(agent_registry, "get_policy", fake_policy)
+    view = _new_table(client)
+    table = PokerTable.objects.get(id=view["table_id"])
+    guard = 0
+    while not view["finished"] and guard < 30:
+        guard += 1
+        table.refresh_from_db()
+        if table.ai_memo is not None:
+            assert len(table.ai_memo["ranges"][0]) == 1326
+            assert table.ai_memo["n"] >= 1
+        kind = "call" if view["actions"]["can_call"] else "check"
+        view = client.post(f"/api/poker/tables/{view['table_id']}/action/", {"kind": kind},
+                           format="json").json()
+    assert view["finished"]
+    # 次の局を配ると持ち越しは消える
+    view = client.post(f"/api/poker/tables/{view['table_id']}/next/", format="json").json()
+    table.refresh_from_db()
+    assert view["hand_no"] == 2

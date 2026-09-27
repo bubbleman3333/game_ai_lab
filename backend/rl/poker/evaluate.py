@@ -34,6 +34,11 @@ class HeadToHead:
     mbb_per_hand: float
     win_rate: float  # 引き分けを 0.5 として数えた勝率
     stderr_mbb: float = 0.0  # mbb/hand の標準誤差
+    # 別プロセスの結果を合算するための元の数（同じカードで 2 回打った合計の和と二乗和）
+    pairs: int = 0
+    pair_sum: float = 0.0
+    pair_sq: float = 0.0
+    wins: float = 0.0
 
     def as_dict(self) -> dict:
         return {
@@ -78,6 +83,11 @@ def head_to_head(
             played += 1
         pair_sum += gain_pair
         pair_sq += gain_pair * gain_pair
+    return _from_stats(pairs, played, chips, wins, pair_sum, pair_sq)
+
+
+def _from_stats(pairs: int, played: int, chips: int, wins: float, pair_sum: float,
+                pair_sq: float) -> HeadToHead:
     mean_pair = pair_sum / pairs
     var_pair = max(0.0, pair_sq / pairs - mean_pair * mean_pair)
     # 1 局あたりに直すので 2 で割り、標本数の平方根で割る
@@ -88,7 +98,53 @@ def head_to_head(
         mbb_per_hand=chips / played / BIG_BLIND * 1000,
         win_rate=wins / played,
         stderr_mbb=stderr,
+        pairs=pairs, pair_sum=pair_sum, pair_sq=pair_sq, wins=wins,
     )
+
+
+def merge(results: list[HeadToHead]) -> HeadToHead:
+    """別々に測った結果（同じ組み合わせ）を 1 つにまとめる。"""
+    return _from_stats(
+        pairs=sum(r.pairs for r in results),
+        played=sum(r.hands for r in results),
+        chips=sum(r.chips for r in results),
+        wins=sum(r.wins for r in results),
+        pair_sum=sum(r.pair_sum for r in results),
+        pair_sq=sum(r.pair_sq for r in results),
+    )
+
+
+def _h2h_worker(args) -> HeadToHead:
+    spec_a, spec_b, hands, seed, start_stack = args
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
+    from .exploit import _load_policy
+
+    return head_to_head(_load_policy(spec_a, seed=seed), _load_policy(spec_b, seed=seed + 1),
+                        hands=hands, seed=seed, start_stack=start_stack)
+
+
+def head_to_head_parallel(spec_a: str, spec_b: str, hands: int, workers: int, seed: int = 1,
+                          start_stack: int = 200) -> HeadToHead:
+    """AI の ID どうしを複数プロセスで対戦させる（その場で解く AI は 1 手 1〜2 秒かかるため）。"""
+    import multiprocessing as mp
+    import os
+
+    # 子プロセスの BLAS を 1 スレッドにする（14 プロセス × 16 スレッドだと取り合いで 20 倍遅くなった）。
+    # Windows は子を新しく起動するので、親の環境変数がそのまま効く
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[var] = "1"
+    workers = max(1, workers)
+    chunk = max(2, hands // workers)
+    args = [(spec_a, spec_b, chunk, seed * 1000 + i, start_stack) for i in range(workers)]
+    if workers == 1:
+        return _h2h_worker(args[0])
+    with mp.Pool(workers) as pool:
+        return merge(pool.map(_h2h_worker, args))
 
 
 @dataclass
@@ -166,7 +222,7 @@ def score_of(results: dict[str, dict]) -> float:
 
 
 def _main() -> None:
-    """コマンドラインから、ちゃんとした局数で強さを測る。
+    r"""コマンドラインから、ちゃんとした局数で強さを測る。
 
         cd backend
         .\.venv\Scripts\python -m rl.poker.evaluate --agent n1:latest
@@ -176,34 +232,46 @@ def _main() -> None:
     """
     import argparse
     import json
+    import time
     from datetime import datetime, timezone
 
     from .exploit import _load_policy
 
     ap = argparse.ArgumentParser(description="ポーカー AI の強さをちゃんとした局数で測る")
-    ap.add_argument("--agent", default="n1:latest", help='"n1:latest" か pt/npz のファイルの場所')
+    ap.add_argument("--agent", default="n1:latest",
+                    help='"n1:latest"（ネット + その場で解く）、"n1:latest:net"（ネットだけ）、'
+                         'pt/npz のファイルの場所')
+    ap.add_argument("--opponents", default="heuristic,heuristic-loose",
+                    help="相手の ID をコンマ区切りで（AI の ID も使える。例: n1:latest:net）")
     ap.add_argument("--hands", type=int, default=24_000)
     ap.add_argument("--stack-bb", type=int, default=100)
-    ap.add_argument("--matches", type=int, default=60, help="退場のしにくさを測る回数")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="対戦を分けるプロセス数（その場で解く AI は 1 手 1〜2 秒かかるので多めに）")
+    ap.add_argument("--matches", type=int, default=0, help="退場のしにくさを測る回数（0 = 測らない）")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--jsonl", default="", help="結果を 1 行足すファイル（推移を残したいとき）")
     args = ap.parse_args()
 
     from . import players  # 循環参照を避けるため、ここで読む
 
-    me = _load_policy(args.agent, seed=11)
     stack = args.stack_bb * BIG_BLIND
     row: dict = {"agent": args.agent, "stack_bb": args.stack_bb, "hands": args.hands,
                  "at": datetime.now(timezone.utc).isoformat()}
-    for name in ("heuristic", "heuristic-loose"):
-        r = head_to_head(me, players.BASELINES[name](7), hands=args.hands,
-                         seed=args.seed + len(name), start_stack=stack)
+    for name in args.opponents.split(","):
+        name = name.strip()
+        if not name:
+            continue
+        t0 = time.time()
+        r = head_to_head_parallel(args.agent, name, hands=args.hands, workers=args.workers,
+                                  seed=args.seed + len(name), start_stack=stack)
         row[f"vs_{name}"] = r.as_dict()
-        print(f"  vs {name:<16} {r}")
-    s = survival(me, players.BASELINES["heuristic"](7), matches=args.matches,
-                 start_stack=stack, max_hands=300, seed=args.seed)
-    row["survival"] = s.as_dict()
-    print(f"  飛んだ割合 {s.bust_rate:.0%}（{s.matches} 回・平均 {s.avg_hands:.0f} 局）")
+        print(f"  vs {name:<16} {r}  ({time.time() - t0:.0f} 秒)")
+    if args.matches:
+        me = _load_policy(args.agent, seed=11)
+        s = survival(me, players.BASELINES["heuristic"](7), matches=args.matches,
+                     start_stack=stack, max_hands=300, seed=args.seed)
+        row["survival"] = s.as_dict()
+        print(f"  飛んだ割合 {s.bust_rate:.0%}（{s.matches} 回・平均 {s.avg_hands:.0f} 局）")
     if args.jsonl:
         with open(args.jsonl, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + chr(10))

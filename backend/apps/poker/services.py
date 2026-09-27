@@ -101,6 +101,7 @@ def deal_next_hand(table: PokerTable) -> PokerTable:
     table.hist = ""
     table.log = []
     table.result = None
+    table.ai_memo = None
     with transaction.atomic():
         table.save()
     return _run_ai(table)
@@ -154,6 +155,8 @@ def _run_ai(table: PokerTable) -> PokerTable:
     """AI の手番が続くかぎり打たせる。終局したら後片付けをする。"""
     st = state_from_json(table.state)
     policy = agent_registry.get_policy(table.agent, seed=table.hand_no)
+    if hasattr(policy, "load_memo"):  # その場で解く AI は、局の途中のレンジを持ち越す
+        policy.load_memo(table.ai_memo)
     log = list(table.log)
     hist = table.hist
     guard = 0
@@ -181,6 +184,8 @@ def _run_ai(table: PokerTable) -> PokerTable:
     table.log = log
     table.hist = hist
     table.state = state_to_json(st)
+    if hasattr(policy, "dump_memo"):
+        table.ai_memo = policy.dump_memo()
     if st.finished:
         _finish_hand(table, st)
     else:

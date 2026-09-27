@@ -26,6 +26,9 @@ class PokerTable(models.Model):
     hist = models.CharField(max_length=128, default="")  # AI に渡す行動の履歴（枠の番号の並び）
     log = models.JSONField(default=list)  # 今の局の読み上げ
     result = models.JSONField(null=True, blank=True)  # 終わった局の結果（次を配るまで残す）
+    # AI が局の途中で持ち歩くもの（両者のレンジなど。rl.poker.search.SearchPlayer.dump_memo()）。
+    # リクエストごとに AI を作り直すので、ここに置いて持ち越す。局を配り直すと消す
+    ai_memo = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

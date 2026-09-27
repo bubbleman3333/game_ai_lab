@@ -37,9 +37,12 @@
   オセロのパターン（`rl/othello/ntuple.py`）を変えたら `PATTERN_VERSION`、
   ポーカーのベット額の枠など（`rl/poker/config.py`）を変えたら `ABSTRACTION_VERSION` を上げる。
   古い重み・戦略は使えなくなる。
-- **ポーカーの AI 本体はニューラルネット（Deep CFR、`rl/poker/train_deep.py`）**。
+- **ポーカーの AI 本体は「ニューラルネット（Deep CFR）+ その場で解くソルバー」**（`rl/poker/search.py`）。
+  GTO Wizard と同じ考え方で、目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（`rl/poker/solver.py`）。
+  ネット（`rl/poker/train_deep.py`）は相手のレンジを推定するモデルとして使う。
   表形式の CFR（`rl/poker/train.py`）は先に作ったもので、深いスタックが弱いため比較用に残してある。
   ルールベース（`rl/poker/players.heuristic`）は**比較の基準**であって AI ではない。
+  強さは `python -m rl.poker.evaluate --agent n1:latest --workers 8` で測る（ソルバーは 1 手 1〜2 秒かかるので並列で）。
 - **ポーカーだけ TS 版のルールが無い**。相手の手札が見えないゲームなので、局面をブラウザに渡すと
   AI の手札まで渡ってしまう。進行はすべてサーバー（`apps/poker`）で行い、画面には
   「その人に見せていいもの」だけを返す。だから `games/poker/` に fixtures も無い。

@@ -28,7 +28,7 @@
 | `services.py` | Service | 局を配る・手を当てる・AI に打たせる・終局の後片付け |
 | `selectors.py` | Repository | 直近の局、AI ごとの人間相手の成績 |
 | `models.py` | Entity | `PokerTable`（今の局とスタック）・`PokerHand`（終わった局の記録） |
-| `agent_registry.py` | | AI の ID ↔ `runs/poker/<run>/checkpoints/{best,latest}.npz`。読み込み済みをキャッシュ |
+| `agent_registry.py` | | AI の ID ↔ `runs/poker/<run>/checkpoints/{best,latest}.{pt,npz}`。読み込み済みをキャッシュ |
 
 席は固定で**人が 0 番・AI が 1 番**。ボタン（スモールブラインド）は 1 局目が人で、以降交代する。
 
@@ -43,16 +43,19 @@ POST /api/poker/tables/<id>/next/      次の局を配る
 GET  /api/poker/stats/                 AI ごとの人間相手の成績と直近の局
 ```
 
-AI の ID は `<学習名>:best` / `<学習名>:latest`（学習したもの）か `heuristic`（比較用のルールベース）。
-中身は 2 種類あり、`agent_registry.py` が拡張子で見分ける。
+AI の ID は次のとおり（`agent_registry.py`）。
 
-- **`.pt` = ニューラルネット（Deep CFR）**。局面をそのままベクトルにして入れるので
-  「知らない場面」が無く、スタックの深さも 1 つのネットでまかなう。**こちらが本命**。
-- `.npz` = 表形式の CFR（最初に作った方）。手をバケツにまとめて表に持つので
+- **`<学習名>:latest` / `<学習名>:best` = ネット + その場で解く（`rl.poker.search.SearchPlayer`）。本命で既定**。
+  目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（GTO Wizard と同じ考え方）。1 手に 1〜2 秒かかる。
+  局の途中のレンジは `PokerTable.ai_memo` に保存して、リクエストをまたいで持ち越す
+  （`services._run_ai` が `load_memo()` / `dump_memo()` を呼ぶ。次の局を配ると消す）。
+- `<学習名>:latest:net` / `<学習名>:best:net` = ニューラルネット（Deep CFR）の平均戦略だけで打つ。比較用。
+- 表形式の CFR（`.npz`）は `<学習名>:best` のまま。手をバケツにまとめて表に持つので
   「まだ学習していない場面」があり、そこはルールベースで穴埋めする
   （`rl.poker.players.strategy_player` の `fallback`）。深いスタックが弱いので比較用。
+- `heuristic` = 比較用のルールベース。
 
-ルールベースは AI 本体ではなく**比較の基準**。一覧ではニューラルネットの best が先頭に来る。
+ルールベースは AI 本体ではなく**比較の基準**。一覧では「その場で解く」の latest が先頭に来る。
 
 ## 気をつけること
 

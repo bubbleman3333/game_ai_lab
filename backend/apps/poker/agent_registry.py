@@ -1,15 +1,18 @@
 """使える AI の一覧と、読み込み済みのキャッシュ（apps/blob_ai と同じ作り）。
 
 AI の ID:
-    "<run>:best" / "<run>:latest"   runs/poker/<run>/checkpoints/{best,latest}.{pt,npz}
-    "heuristic"                     学習なしのルールベース（比較用。いつでも使える）
+    "<run>:best" / "<run>:latest"       ネット + **その場で解く**（本命。`rl.poker.search`）
+    "<run>:best:net" / "<run>:latest:net" ネットだけで打つ（比較用）
+    "heuristic"                         学習なしのルールベース（比較用。いつでも使える）
+    （表形式 `.npz` は "<run>:best" などのまま。拡張子で見分ける）
 
-**中身は 2 種類ある**。
+**中身は 3 種類ある**。
 
-- `.pt` = **ニューラルネット（Deep CFR）**。局面をそのままベクトルにして入れるので、
-  知らない場面が無く、スタックの深さも 1 つのネットでまかなう。**こちらが本命**。
-  既定は **`latest`**。CFR は「学習中の打ち方の平均」が強くなる方式なので、あとの世代ほど
-  強いのが普通で、対戦成績で選ぶ `best` はポーカーのブレに負けやすい。
+- **その場で解く（search）** = `.pt` のネットを土台に、目の前の局面をソルバーで解いて打つ。
+  GTO Wizard のような「ソルバーの均衡戦略」をその場で作る。ネットは相手のレンジを
+  推定するモデルとして使う。**これが本命で、既定**。1 手に 1〜2 秒かかる。
+- **ネットだけ（neural）** = `.pt` のニューラルネット（Deep CFR）の平均戦略でそのまま打つ。
+  速いが、ネットの覚え方の粗さがそのまま出る（100BB で 44 をオールインするなど）。
 - `.npz` = 表形式の CFR（最初に作った方）。手をバケツにまとめて表に持つ。
   深さごとに別の表なので、深いところが弱かった。比較のために残してある。
 
@@ -33,7 +36,8 @@ from rl.poker.model import PokerNet
 
 HEURISTIC_ID = "heuristic"
 _CHECKPOINT_KINDS = ("best", "latest")
-NEURAL, TABLE, RULE = "neural", "table", "heuristic"
+SEARCH, NEURAL, TABLE, RULE = "search", "neural", "table", "heuristic"
+NET_SUFFIX = ":net"
 
 
 @dataclass(frozen=True)
@@ -96,12 +100,12 @@ def _detail(path: Path, family: str, mtime: float) -> str:
 
 
 def list_agents() -> list[AgentInfo]:
-    """ニューラルネットの latest が先頭。最後にルールベース（比較用）。"""
+    """「その場で解く」の latest が先頭。最後にルールベース（比較用）。"""
     found: list[AgentInfo] = []
     runs = _runs_dir()
     if runs.exists():
         for run_dir in sorted(runs.iterdir()):
-            if not run_dir.is_dir():
+            if not run_dir.is_dir() or run_dir.name.startswith("_"):
                 continue
             for kind in _CHECKPOINT_KINDS:
                 for suffix, family in ((".pt", NEURAL), (".npz", TABLE)):
@@ -109,25 +113,39 @@ def list_agents() -> list[AgentInfo]:
                     if not p.exists():
                         continue
                     mtime = p.stat().st_mtime
-                    tag = "ニューラルネット" if family == NEURAL else "表形式"
                     if family == NEURAL:
-                        tag = "最新・おすすめ" if kind == "latest" else "対戦成績で選んだ版"
-                    found.append(AgentInfo(
-                        id=f"{run_dir.name}:{kind}",
-                        label=f"{run_dir.name}（{kind}・{tag}）",
-                        run=run_dir.name, kind=kind, family=family, path=p, updated_at=mtime,
-                        detail=_detail(p, family, mtime),
-                    ))
-    # ニューラルネットを先に。**ニューラルネット版は latest を既定にする**。
+                        tag = "最新" if kind == "latest" else "対戦成績で選んだ版"
+                        found.append(AgentInfo(
+                            id=f"{run_dir.name}:{kind}",
+                            label=f"{run_dir.name}（{kind}・{tag}・その場で解く）",
+                            run=run_dir.name, kind=kind, family=SEARCH, path=p, updated_at=mtime,
+                            detail=_detail(p, family, mtime),
+                        ))
+                        found.append(AgentInfo(
+                            id=f"{run_dir.name}:{kind}{NET_SUFFIX}",
+                            label=f"{run_dir.name}（{kind}・{tag}・ネットだけ）",
+                            run=run_dir.name, kind=kind, family=NEURAL, path=p, updated_at=mtime,
+                            detail=_detail(p, family, mtime),
+                        ))
+                    else:
+                        found.append(AgentInfo(
+                            id=f"{run_dir.name}:{kind}",
+                            label=f"{run_dir.name}（{kind}・表形式）",
+                            run=run_dir.name, kind=kind, family=family, path=p, updated_at=mtime,
+                            detail=_detail(p, family, mtime),
+                        ))
+    # 「その場で解く」を先に、次にネットだけ。**どちらも latest を既定にする**。
     # CFR は「学習中の打ち方の平均」が強くなる方式なので、あとの世代ほど強いのが普通。
     # 一方 best は対戦成績で選ぶが、ポーカーはブレが大きく、1 万局程度の評価では
     # 標準誤差が ±180 mbb/hand ほどある。実際、+108 と出て best になった重みを
     # 2 万 4 千局で測り直すと -377 で、まぐれ当たりだった。
     # 表形式版は学習が止まっているので、これまでどおり best を先に。
+    _rank = {SEARCH: 0, NEURAL: 1, TABLE: 2}
+
     def order(a: AgentInfo) -> tuple:
-        if a.family == NEURAL:
-            return (0, a.kind != "latest", -(a.updated_at or 0))
-        return (1, a.kind != "best", -(a.updated_at or 0))
+        if a.family in (SEARCH, NEURAL):
+            return (_rank[a.family], a.kind != "latest", -(a.updated_at or 0))
+        return (_rank[TABLE], a.kind != "best", -(a.updated_at or 0))
 
     found.sort(key=order)
     found.append(AgentInfo(HEURISTIC_ID, "ルールベース（学習なし・比較用）", None, "heuristic",
@@ -145,15 +163,16 @@ _lock = threading.Lock()
 
 def _loaded(info: AgentInfo):
     with _lock:
-        cached = _cache.get(info.id)
+        key = str(info.path)  # 同じ重みは「その場で解く」と「ネットだけ」で共有する
+        cached = _cache.get(key)
         if cached and cached[0] == info.updated_at:
             return cached[1]
-        if info.family == NEURAL:
+        if info.family in (SEARCH, NEURAL):
             net, _ = PokerNet.load(info.path, "cpu")
             obj = net.to_numpy()
         else:
             obj = Strategy.from_file(info.path)
-        _cache[info.id] = (info.updated_at or 0.0, obj)
+        _cache[key] = (info.updated_at or 0.0, obj)
         return obj
 
 
@@ -166,6 +185,10 @@ def get_policy(agent_id: str | None, seed: int = 0):
     if info is None or info.path is None:
         raise NotFound(f"AI '{agent_id}' は見つかりません")
     obj = _loaded(info)
+    if info.family == SEARCH:
+        from rl.poker.search import search_player
+
+        return search_player(obj, seed=seed)
     if info.family == NEURAL:
         return players.neural_player(obj, seed=seed)
     # 表形式は「知らない場面」があるので、そこはルールベースで埋める

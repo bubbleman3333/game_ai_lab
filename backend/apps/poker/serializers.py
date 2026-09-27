@@ -32,7 +32,7 @@ class AgentSerializer(serializers.Serializer):
     label = serializers.CharField()
     run = serializers.CharField(allow_null=True)
     kind = serializers.CharField()
-    family = serializers.CharField()  # neural / table / heuristic
+    family = serializers.CharField()  # search / neural / table / heuristic
     detail = serializers.CharField(allow_blank=True)
 
 

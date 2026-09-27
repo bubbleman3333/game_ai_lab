@@ -33,7 +33,7 @@ src/
     sounds.ts             効果音
     api/ components/ pages/
   games/blob/             ブロブチェイン（落ち物パズル）→ games/blob/README.md
-  games/poker/            ポーカー（engine/ が無く、進行はサーバー側。相手の手札を渡せないため）→ games/poker/README.md
+  games/poker/            ポーカー（engine/ が無く、進行も AI（ソルバー）もサーバー側。相手の手札を渡せないため）→ games/poker/README.md
   games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
   games/ocean/            オーシャン・スイム（海を泳ぐ 3D。ルールは sim/、絵は scene/。AI 無し）→ games/ocean/README.md
   games/city/             シティ（GTA 風 3D オープンワールド。ブラウザだけで完結）→ games/city/README.md
