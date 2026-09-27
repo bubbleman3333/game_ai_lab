@@ -613,13 +613,52 @@ kbd {
   .poker-raise input[type='range'] { width: 110px; }
 }
 
-/* 直前の行動の吹き出し。何をされたのかが一目で分かるように、席の横に出す */
-.poker-said {
-  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 999px; padding: 3px 12px; font-size: 0.85rem; font-weight: 700;
-  color: #fff; white-space: nowrap;
+/* 直前の行動のバッジ。何をされたのかが一目で分かるように、席の横に色つきで出す。
+   種類ごとの色: フォールド＝灰、チェック＝青、コール＝緑、レイズ＝橙、オールイン＝赤 */
+.poker-actions-said { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-height: 34px; }
+.poker-seat.ai .poker-actions-said { justify-content: flex-end; }
+.poker-action {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px;
+  font-size: 0.85rem; font-weight: 700; color: #fff; white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.2);
+  animation: poker-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  opacity: 0.75;
 }
-.poker-said.folded { background: rgba(0, 0, 0, 0.5); color: #ff9c9c; border-color: #8a4242; }
+.poker-action.big { opacity: 1; font-size: 1rem; padding: 7px 16px; }
+.poker-action-icon {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25); font-size: 0.7rem;
+}
+.poker-action small { font-weight: 500; opacity: 0.85; font-size: 0.72rem; }
+.poker-action.fold { background: #5b6270; color: #f1f3f6; }
+.poker-action.check { background: #2f7fd8; }
+.poker-action.call { background: #2c9a5b; }
+.poker-action.raise { background: #e0842a; }
+.poker-action.allin { background: #d43c3c; animation: poker-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both, poker-pulse 1.2s ease-in-out 0.4s 3; }
+@keyframes poker-pop {
+  from { transform: scale(0.4) translateY(8px); opacity: 0; }
+  to { transform: scale(1) translateY(0); }
+}
+@keyframes poker-pulse {
+  0%, 100% { box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(212, 60, 60, 0.35); }
+}
+/* サーバーが解いている間（1〜2 秒） */
+.poker-thinking {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35); border: 1px dashed rgba(255, 255, 255, 0.4); color: #fff; font-weight: 700;
+}
+.poker-thinking .dots { display: inline-flex; gap: 3px; }
+.poker-thinking .dots i {
+  width: 6px; height: 6px; border-radius: 50%; background: #fff; display: inline-block;
+  animation: poker-dot 1s ease-in-out infinite;
+}
+.poker-thinking .dots i:nth-child(2) { animation-delay: 0.15s; }
+.poker-thinking .dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes poker-dot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) {
+  .poker-action, .poker-thinking .dots i { animation: none; }
+}
 .poker-seat.folded .poker-seat-name { text-decoration: line-through; opacity: 0.7; }
 .poker-reason { font-weight: 700; }
 .poker-mix { color: var(--text-muted); font-size: 0.85rem; margin-left: 6px; }

@@ -187,7 +187,7 @@ export function PokerPage() {
 
       {table ? (
         <>
-          <PokerFelt table={table} agentLabel={agentLabel} />
+          <PokerFelt table={table} agentLabel={agentLabel} thinking={busy} />
           <ActionBar
             table={table}
             busy={busy}
