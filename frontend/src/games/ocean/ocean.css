@@ -1,0 +1,114 @@
+/* --- 海を泳ぐ（3D） -------------------------------------------------------------
+   --ocean-accent は区間の色（scene/themes.ts の accent）。
+   3D の描画そのものは canvas の中なので、ここは HUD とタイトル画面の見た目だけ。
+   styles.css ではなくこのファイルに置き、ページを開いたときだけ読み込む。 */
+.ocean-menu { max-width: 900px; }
+.ocean-menu h1 small { font-size: 0.55em; color: var(--text-muted); font-weight: 400; }
+.ocean-keys { padding-left: 18px; line-height: 2; }
+.ocean-zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.ocean-zone-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); border-top: 3px solid var(--ocean-accent, var(--accent));
+}
+.ocean-zone-name { font-weight: 700; font-size: 1.1rem; }
+.ocean-start { font-size: 1.1rem; padding: 10px 28px; }
+
+.ocean-play {
+  position: fixed; inset: 0; background: #000; --ocean-accent: #5fd8ff; overflow: hidden; z-index: 20;
+  /* 3D の上に重ねるので、明るい配色のときも文字は白で固定する */
+  color: #f2f2f0; --text: #f2f2f0; --text-muted: #b9b8b0; --surface-2: #242423; --border: #4a4a48;
+}
+.ocean-play button { color: #f2f2f0; background: #242423; border-color: #4a4a48; }
+.ocean-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.ocean-hud {
+  position: absolute; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+.ocean-tint { position: absolute; inset: 0; background: #0a5a86; transition: opacity 0.3s; mix-blend-mode: multiply; }
+.ocean-hurt { position: absolute; inset: 0; animation: ocean-hurt 0.7s ease-out forwards; }
+.ocean-hurt.bite { box-shadow: inset 0 0 120px 40px rgba(200, 20, 20, 0.85); }
+.ocean-hurt.sting { box-shadow: inset 0 0 120px 40px rgba(180, 80, 255, 0.75); }
+@keyframes ocean-hurt { from { opacity: 1; } to { opacity: 0; } }
+.ocean-air-warn { position: absolute; inset: 0; box-shadow: inset 0 0 90px 20px rgba(20, 40, 120, 0.8); animation: ocean-pulse 0.8s ease-in-out infinite alternate; }
+@keyframes ocean-pulse { from { opacity: 0.3; } to { opacity: 1; } }
+
+.ocean-top-left { position: absolute; top: 14px; left: 16px; width: 200px; }
+.ocean-hearts { font-size: 1.7rem; letter-spacing: 2px; line-height: 1; margin-bottom: 8px; }
+.ocean-hearts .full { color: #ff4d6d; }
+.ocean-hearts .half { color: #ff4d6d; opacity: 0.55; }
+.ocean-hearts .empty { color: rgba(255, 255, 255, 0.25); }
+.ocean-bar-label { font-size: 0.7rem; letter-spacing: 0.1em; opacity: 0.85; margin-top: 4px; }
+.ocean-bar { height: 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.5); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.2); }
+.ocean-bar > div { height: 100%; transition: width 0.1s linear; }
+.ocean-bar.air > div { background: linear-gradient(90deg, #4fc3ff, #bff2ff); }
+.ocean-bar.air.low > div { background: linear-gradient(90deg, #ff5a5a, #ffb0b0); }
+.ocean-bar.stamina > div { background: linear-gradient(90deg, #ffc53a, #fff0b0); }
+
+.ocean-depth { margin-top: 8px; font-size: 1.1rem; font-weight: 700; color: #bff2ff; }
+.ocean-depth small { font-size: 0.75rem; margin-left: 2px; font-weight: 400; }
+.ocean-top-right { position: absolute; top: 14px; right: 90px; text-align: right; }
+.ocean-distance { font-size: 2.4rem; font-weight: 900; line-height: 1; color: var(--ocean-accent); }
+.ocean-distance small { font-size: 1rem; margin-left: 3px; color: #fff; font-weight: 400; }
+.ocean-score { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+.ocean-score small { font-weight: 400; opacity: 0.8; }
+.ocean-zone { font-size: 0.9rem; opacity: 0.85; margin-top: 2px; }
+
+.ocean-threat {
+  position: absolute; left: 50%; top: 18%; transform: translateX(-50%); text-align: center;
+  padding: 8px 18px; border-radius: 10px; background: rgba(8, 8, 12, 0.55); border: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+}
+.ocean-threat.charge { border-color: #ff4d4d; color: #ff8a8a; animation: ocean-blink 0.3s steps(2) infinite; }
+@keyframes ocean-blink { 50% { background: rgba(160, 10, 10, 0.65); } }
+.ocean-threat-arrow { font-size: 1.6rem; display: block; line-height: 1; }
+.ocean-threat.dir-left .ocean-threat-arrow, .ocean-threat.dir-right .ocean-threat-arrow { font-size: 2rem; }
+
+.ocean-flash {
+  position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font-size: 1.6rem; font-weight: 800;
+  white-space: nowrap; animation: ocean-pop 1.4s ease-out forwards;
+}
+.ocean-flash.good { color: #9fffbf; }
+.ocean-flash.bad { color: #ff7a7a; }
+.ocean-flash.info { color: var(--ocean-accent); }
+@keyframes ocean-pop {
+  0% { transform: translateX(-50%) scale(0.6); opacity: 0; }
+  12% { transform: translateX(-50%) scale(1.05); opacity: 1; }
+  75% { opacity: 1; }
+  100% { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+}
+
+.ocean-quit { position: absolute; top: 14px; right: 16px; background: rgba(8, 8, 12, 0.6); color: #fff; }
+.ocean-result {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 300px; max-width: 92vw;
+  text-align: center; background: rgba(12, 16, 24, 0.94);
+}
+.ocean-result h2 { color: #ff8a8a; }
+.ocean-result-dist { font-size: 2.6rem; font-weight: 900; margin: 4px 0 12px; color: var(--ocean-accent); }
+.ocean-result-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin: 0 0 16px; text-align: left; }
+.ocean-result-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.ocean-result-list dt { color: var(--text-muted); }
+.ocean-result-list dd { margin: 0; font-weight: 700; }
+.ocean-result-actions { display: flex; gap: 8px; justify-content: center; }
+.ocean-result-actions .ghost { background: transparent; }
+.ocean-touch { display: none; }
+
+/* スマホ: 画面が狭いときだけ操作ボタンを出す */
+@media (max-width: 860px), (pointer: coarse) {
+  .ocean-touch {
+    display: flex; position: absolute; inset: auto 0 0 0; justify-content: space-between;
+    padding: 0 14px 18px; pointer-events: none;
+  }
+  .ocean-touch > div { display: flex; gap: 10px; align-items: flex-end; pointer-events: auto; }
+  .ocean-touch button {
+    width: 62px; height: 62px; border-radius: 50%; font-size: 1.1rem; font-weight: 700; color: #fff;
+    background: rgba(20, 20, 26, 0.6); border: 1px solid rgba(255, 255, 255, 0.25); touch-action: none;
+  }
+  .ocean-touch button.big { width: 82px; height: 82px; border-color: var(--ocean-accent); }
+  .ocean-top-left { width: 130px; }
+  .ocean-hearts { font-size: 1.3rem; }
+  .ocean-distance { font-size: 1.7rem; }
+  .ocean-top-right { right: 76px; }
+  .ocean-quit { padding: 4px 8px; font-size: 0.85rem; }
+  .ocean-flash { font-size: 1.2rem; }
+  .ocean-threat { top: 22%; font-size: 0.9rem; max-width: 80vw; }
+}

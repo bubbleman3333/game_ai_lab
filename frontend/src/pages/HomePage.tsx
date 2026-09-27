@@ -54,6 +54,13 @@ const GAMES = [
     ],
   },
   {
+    title: 'オーシャン・スイム ― 海を泳ぐ ―',
+    text: '3D の海をどこまでも泳ぐ。漂うクラゲに刺され、たまにサメに襲われる。潜って避け、目の前まで来たサメは蹴って追い払う',
+    links: [
+      { to: '/ocean', label: '泳ぐ' },
+    ],
+  },
+  {
     title: '将棋',
     text: 'AI は強豪 AI 同士の対局（floodgate）から ResNet で学び、モンテカルロ木探索で読む（dlshogi 方式）',
     links: [

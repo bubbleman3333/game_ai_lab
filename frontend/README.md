@@ -35,6 +35,7 @@ src/
   games/blob/             ブロブチェイン（落ち物パズル）→ games/blob/README.md
   games/poker/            ポーカー（engine/ が無く、進行はサーバー側。相手の手札を渡せないため）→ games/poker/README.md
   games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
+  games/ocean/            オーシャン・スイム（海を泳ぐ 3D。ルールは sim/、絵は scene/。AI 無し）→ games/ocean/README.md
   games/city/             シティ（GTA 風 3D オープンワールド。ブラウザだけで完結）→ games/city/README.md
   styles.css              色は CSS 変数で指定（暗い配色が基本。`:root[data-theme='light']` で明るい配色）
 ```
@@ -44,6 +45,8 @@ src/
 - テトリスの `/tetris/play` と `/tetris/vs-ai` では、コンソールから `window.__tetris` を見られる。
   例: `__tetris.controller.game.board.toStrings().join('\n')`
 - テトリス AI の手は Network タブの `/api/tetris/move/` で見られる（`path` が操作列）。
+- 海を泳ぐ `/ocean` では、コンソールから `window.__ocean`（進行）と `window.__oceanScene`（3D）を見られる。
+  例: `__ocean.sharkTimer = 0` で次のフレームにサメが来る
 - ブロブチェイン AI の手も同じく `/api/blob/move/`（`placement` が置き場所、`path` が操作列）。
   一人用 `/blob` で AI を「お手本」にすると、置き場所が点線の丸で盤に出る。
 - オセロの AI の読みは画面右の「読み・予想・読んだ局面」に出る。「評価値を表示」で各手の予想石差も見られる。

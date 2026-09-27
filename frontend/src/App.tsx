@@ -33,6 +33,8 @@ const RacerPage = lazy(() => import('./games/racer/pages/RacerPage').then((m) =>
 const RacerStatsPage = lazy(() => import('./games/racer/pages/RacerStatsPage').then((m) => ({ default: m.RacerStatsPage })))
 // シティ（GTA 風のオープンワールド）も three.js を使うので、開いたときにだけ読み込む
 const CityPage = lazy(() => import('./games/city/pages/CityPage').then((m) => ({ default: m.CityPage })))
+// 海を泳ぐゲームも three.js を使うので、開いたときにだけ読み込む
+const OceanPage = lazy(() => import('./games/ocean/pages/OceanPage').then((m) => ({ default: m.OceanPage })))
 
 export default function App() {
   // 利用状況（今誰が遊んでいるか）の合図。ページを移るたびにすぐ送る
@@ -66,6 +68,8 @@ export default function App() {
         <NavLink to="/racer/stats">強さ</NavLink>
         <span className="nav-group">シティ</span>
         <NavLink to="/city" end>走る</NavLink>
+        <span className="nav-group">海</span>
+        <NavLink to="/ocean" end>泳ぐ</NavLink>
         <span className="nav-group">将棋</span>
         <NavLink to="/shogi" end>対局</NavLink>
         <NavLink to="/shogi/stats">強さ</NavLink>
@@ -97,6 +101,7 @@ export default function App() {
           <Route path="/racer" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><RacerPage /></Suspense>} />
           <Route path="/racer/stats" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><RacerStatsPage /></Suspense>} />
           <Route path="/city" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><CityPage /></Suspense>} />
+          <Route path="/ocean" element={<Suspense fallback={<p className="page muted">読み込み中…</p>}><OceanPage /></Suspense>} />
           <Route path="/shogi" element={<ShogiPage />} />
           <Route path="/shogi/stats" element={<ShogiStatsPage />} />
           <Route path="/poker" element={<PokerPage />} />
