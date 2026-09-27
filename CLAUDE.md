@@ -12,6 +12,7 @@
    - オセロ（ルール・AI の設計）→ `docs/OTHELLO.md`、学習 → `backend/rl/othello/README.md`
    - エアホッケー → `backend/rl/airhockey/README.md`（物理は `backend/games/airhockey/physics.py` と TS 版）
    - レース（3D）→ `frontend/src/games/racer/README.md`（コースの足し方もここ）、学習 → `backend/rl/racer/README.md`
+   - シティ（GTA 風 3D オープンワールド・物語つき。ブラウザだけで完結）→ `frontend/src/games/city/README.md`
    - 将棋 → `backend/rl/shogi/README.md`、対局 API → `backend/apps/shogi/views.py` の先頭
    - ポーカー（ヘッズアップ・ノーリミット）→ `backend/rl/poker/README.md`、ルールは `backend/games/poker/`、
      API → `backend/apps/poker/README.md`、画面 → `frontend/src/games/poker/README.md`

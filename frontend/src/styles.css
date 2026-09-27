@@ -624,3 +624,113 @@ kbd {
 .poker-reason { font-weight: 700; }
 .poker-mix { color: var(--text-muted); font-size: 0.85rem; margin-left: 6px; }
 .poker-mix .chosen { color: var(--text); font-weight: 700; }
+
+/* --- シティ（GTA 風 3D） -------------------------------------------------------
+   --city-accent は街のテーマの色（games/city/scene/themes.ts の accent）。
+   3D の描画そのものは canvas の中なので、ここは HUD とタイトル画面の見た目だけ。 */
+.city-menu { max-width: 900px; }
+.city-menu h1 small { font-size: 0.55em; color: var(--text-muted); font-weight: 400; }
+.city-menu section { margin: 18px 0; }
+.city-go { font-size: 1.1rem; padding: 10px 28px; }
+.city-chapters, .city-cars { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.city-cars button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.city-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.city-map-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; padding: 12px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border);
+  border-top: 3px solid var(--city-accent, var(--accent));
+}
+.city-map-card:disabled { opacity: 0.5; cursor: default; }
+.city-map-name { font-weight: 700; font-size: 1.1rem; }
+.city-keys { padding-left: 18px; line-height: 2; }
+
+.city-play { position: fixed; inset: 0; background: #000; --city-accent: #5fc8ff; overflow: hidden; z-index: 20; }
+.city-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.city-hud {
+  position: absolute; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
+.city-top-right { position: absolute; top: 14px; right: 70px; text-align: right; }
+.city-clock { font-size: 1rem; opacity: 0.85; }
+.city-money { font-size: 1.9rem; font-weight: 800; color: #7dff9a; letter-spacing: 0.02em; }
+.city-stars { font-size: 1.6rem; letter-spacing: 2px; color: rgba(255, 255, 255, 0.25); }
+.city-stars span.on { color: #fff; }
+.city-stars.evading span.on { animation: city-blink 0.6s steps(2) infinite; }
+@keyframes city-blink { 50% { color: rgba(255, 255, 255, 0.3); } }
+.city-bottom-left { position: absolute; left: 16px; bottom: 16px; }
+.city-minimap {
+  width: 190px; height: 190px; border-radius: 50%; border: 3px solid rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6); display: block;
+}
+.city-health { width: 190px; height: 7px; margin-top: 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); overflow: hidden; }
+.city-health > div { height: 100%; background: linear-gradient(90deg, #3bd16f, #9dff7a); transition: width 0.2s; }
+.city-bottom-right { position: absolute; right: 22px; bottom: 20px; text-align: right; }
+.city-speed { font-size: 3.4rem; font-weight: 900; line-height: 0.9; color: var(--city-accent); }
+.city-speed small { font-size: 0.9rem; margin-left: 4px; color: #ddd; font-weight: 400; }
+.city-car { font-size: 0.85rem; opacity: 0.8; }
+.city-mission {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center;
+  background: rgba(8, 8, 12, 0.55); padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.city-mission.story { border-color: #ffc53a; }
+.city-mission-title { font-weight: 800; color: var(--city-accent); }
+.city-mission.story .city-mission-title { color: #ffc53a; }
+.city-mission-time { font-size: 1.4rem; font-weight: 800; }
+.city-mission-time.low { color: #ff5a5a; }
+.city-bust { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); text-align: center; color: #6a8cff; font-weight: 800; }
+.city-bust > div { width: 220px; height: 8px; background: rgba(0, 0, 0, 0.6); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.city-bust > div > div { height: 100%; background: #6a8cff; }
+.city-hint { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); font-weight: 700; }
+.city-toasts { position: absolute; right: 22px; top: 130px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.city-toast { font-weight: 800; font-size: 1.05rem; animation: city-pop 0.25s ease-out; }
+.city-toast.score { color: #7dff9a; }
+.city-toast.bad { color: #ff6a6a; }
+.city-toast.good { color: #9fe3ff; }
+@keyframes city-pop { from { transform: scale(0.6); opacity: 0; } }
+.city-subtitle {
+  position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); max-width: min(760px, 88vw);
+  text-align: center; font-size: 1.15rem; line-height: 1.5; background: rgba(0, 0, 0, 0.45); padding: 8px 16px; border-radius: 8px;
+}
+.city-subtitle span { font-weight: 800; margin-right: 10px; }
+.city-dead {
+  position: absolute; inset: 0; display: grid; place-items: center; font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(3rem, 12vw, 8rem); letter-spacing: 0.08em; background: rgba(0, 0, 0, 0.35); animation: city-pop 0.6s ease-out;
+}
+.city-dead { text-align: center; }
+.city-dead small { display: block; font-size: 1.1rem; letter-spacing: 0.1em; color: #ddd; font-family: inherit; }
+.city-dead.wasted { color: #d11d1d; }
+.city-dead.busted { color: #4d7dff; }
+.city-banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; animation: city-pop 0.4s ease-out; }
+.city-banner-title { font-size: 2.3rem; font-weight: 900; color: var(--city-accent); }
+.city-pause-btn { position: absolute; top: 12px; right: 14px; width: 42px; height: 42px; background: rgba(8, 8, 12, 0.6); }
+.city-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; background: rgba(0, 0, 0, 0.6); z-index: 5;
+}
+.city-bigmap { width: min(84vh, 92vw); height: min(84vh, 92vw); border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.2); }
+.city-pause { min-width: 300px; max-width: 92vw; text-align: center; background: rgba(16, 16, 20, 0.95); }
+.city-pause-actions { display: flex; gap: 8px; justify-content: center; }
+.city-touch { display: none; }
+
+/* スマホ: 画面が狭いときだけ操作ボタンを出し、地図を小さく上へ */
+@media (max-width: 860px), (pointer: coarse) {
+  .city-touch {
+    display: flex; position: absolute; inset: auto 0 0 0; justify-content: space-between; padding: 0 12px 16px;
+    pointer-events: none;
+  }
+  .city-touch > div { display: flex; gap: 8px; align-items: flex-end; pointer-events: auto; }
+  .city-touch button {
+    width: 60px; height: 60px; border-radius: 50%; font-weight: 700; background: rgba(20, 20, 26, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;
+  }
+  .city-touch button.small { width: 46px; height: 46px; }
+  .city-touch button.big { width: 78px; height: 78px; border-color: var(--city-accent); }
+  .city-bottom-left { top: 12px; bottom: auto; }
+  .city-minimap { width: 120px; height: 120px; }
+  .city-health { width: 120px; }
+  .city-bottom-right { bottom: 110px; }
+  .city-speed { font-size: 2.2rem; }
+  .city-subtitle { bottom: 170px; font-size: 0.95rem; }
+  .city-top-right { right: 64px; }
+  .city-money { font-size: 1.3rem; }
+}

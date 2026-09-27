@@ -225,6 +225,16 @@ class SoundEngine {
                      (t) => src.stop(t), glide)
   }
 
+  /**
+   * 自前で Web Audio の部品を組みたいとき用（シティの 3D 音響など）。
+   * out につなげば、画面右上の音量・ミュートがそのまま効く。まだ音を出せないときは null
+   */
+  output(): { ctx: AudioContext; out: AudioNode } | null {
+    const ctx = this.ensure()
+    if (!ctx || !this.master) return null
+    return { ctx, out: this.master }
+  }
+
   /** 音階の周波数（A4 = 440Hz から半音 n 個上） */
   note(semitonesFromA4: number): number {
     return 440 * 2 ** (semitonesFromA4 / 12)

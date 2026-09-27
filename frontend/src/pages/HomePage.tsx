@@ -47,6 +47,13 @@ const GAMES = [
     ],
   },
   {
+    title: 'GETAWAY ― 逃がし屋 ―',
+    text: 'GTA 風の 3D オープンワールド。4 つの街（最大 1.7km 四方）を車で駆け、4 章の物語を進める。通行人・一般車・信号・警察の追跡・昼夜と天気',
+    links: [
+      { to: '/city', label: '走る' },
+    ],
+  },
+  {
     title: '将棋',
     text: 'AI は強豪 AI 同士の対局（floodgate）から ResNet で学び、モンテカルロ木探索で読む（dlshogi 方式）',
     links: [
