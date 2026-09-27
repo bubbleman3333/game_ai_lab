@@ -150,7 +150,7 @@ def test_相手のレンジが弱いと強気になる():
 
 def test_木は合法手だけで作られ枠の数と合う():
     st = _river_state()
-    root = solver.build_tree(st, 0, SolveSettings())
+    root = solver.build_tree(st, 0, SolveSettings()).root
     assert root.player == 1
     assert root.actions == [1, 2, 3, 4], "リバーの先手番はチェック・0.5 ポット・1 ポット・オールイン"
     assert root.regret.shape == (4, 1, N_COMBOS)
@@ -205,6 +205,45 @@ def test_プリフロップの解は使い回される():
     c = search.preflop_solution(net, 60, 0, "3", 0.05, settings)
     assert c.root.player == 1, "SB がレイズしたあとは BB の手番"
     assert len(search._preflop_cache) == 2
+
+
+def test_次のストリートの木まで組んで解ける():
+    """ターンはリバーの木まで、フロップはターンの木まで（numba の下の木）。"""
+    st = new_hand(((0, 5), (10, 15)), RIVER_BOARD, start_stack=200, button=0)
+    for _ in range(4):
+        st = apply_action(st, action_from_index(st, 1))
+    uniform = np.ones(N_COMBOS, dtype=np.float32)
+    sol = solve(st, 1, (uniform, uniform), 0, SolveSettings(iterations=3, turn_rivers=48))
+    mix = sol.strategy(combo_index(parse_cards("QsQd")))
+    assert sum(mix.values()) == pytest.approx(1.0)
+    assert all(0.0 <= p <= 1.0 for p in mix.values())
+    st = new_hand(((0, 5), (10, 15)), RIVER_BOARD, start_stack=200, button=0)
+    for _ in range(2):
+        st = apply_action(st, action_from_index(st, 1))
+    sol = solve(st, 1, (uniform, uniform), 0,
+                SolveSettings(iterations=3, flop_turns=4, leaf_rivers=6, flop_runouts=20))
+    assert sum(sol.strategy(combo_index(parse_cards("9s9d"))).values()) == pytest.approx(1.0)
+
+
+def test_numbaの下の木はnumpyの木と同じ後悔を出す():
+    """リバーの木を、層 0（numpy）と下の木（numba）の両方で 1 回ずつ走査して比べる。"""
+    from rl.poker import fastcfr
+
+    st = _river_state()
+    layer = solver.build_tree(st, 0, SolveSettings())
+    ok = valid_mask(st.board)
+    rng = np.random.default_rng(0)
+    r0 = (rng.random(N_COMBOS).astype(np.float32) * ok)[None, :]
+    r1 = (rng.random(N_COMBOS).astype(np.float32) * ok)[None, :]
+    multi = fastcfr.MultiTree([fastcfr.build_flat(st, 0, 1, 2)], fastcfr.RunoutLeaf.build([[RIVER_BOARD]]))
+    for me, a, b in ((0, r0, r1), (1, r1, r0), (0, r0, r1)):
+        v_np = solver._traverse(layer, a, b, me, 1.0, False)
+        v_nb = multi.walk(a[None], b[None], me)[0]
+        assert np.allclose(v_np[0, ok], v_nb[0, ok], rtol=1e-3, atol=1e-2)
+    root = layer.root
+    n_act = len(root.actions)
+    nb_reg = multi.regret[:n_act * N_COMBOS].reshape(n_act, N_COMBOS)
+    assert np.allclose(root.regret[:, 0, ok], nb_reg[:, ok], rtol=1e-3, atol=1e-2)
 
 
 def test_ターンとフロップも解ける():

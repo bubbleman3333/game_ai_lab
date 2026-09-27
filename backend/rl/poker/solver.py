@@ -9,11 +9,12 @@ Libratus / Pluribus が人間に勝ったときの「その場で読み直す」
 **作り**
 
 - 手は 1326 通りのホールカードの組（コンボ）で持つ。レンジは長さ 1326 の重みの配列。
-- 木は「いまのストリートの賭け」だけを組む（`build_tree`）。ストリートが終わったところは
+- 木は「いまのストリートの賭け」を組む（`build_tree`）。ストリートが終わったところは
   - リバーなら本当のショーダウン
-  - ターンなら、リバーのカード 48 通りそれぞれについてリバーの賭けまで組む（`turn_rivers`）か、
-    「そのままショーダウンしたときの期待値」で打ち切る（深さ制限）
-  - フロップは深さ制限（ランアウトを見本で取って平均した勝率で打ち切る）
+  - ターンなら、リバーのカード 48 通りそれぞれについて**リバーの賭けまで組む**（`turn_rivers`。
+    下の木は `fastcfr.py` の numba で回す）か、「そのままショーダウンしたときの期待値」で打ち切る
+  - フロップなら、ターンのカードを見本で何枚か取り、それぞれについて**ターンの賭けまで組む**
+    （`flop_turns`。リバーはそのままショーダウン）か、深さ制限で打ち切る
 - 期待値は**相手のレンジとの行列積**で 1326 通りまとめて求める。ショーダウンは
   「強さの順に並べて累積和を取る」やり方で、カードのかぶり（ブロッカー）も正しく引く。
 - 反復は CFR+（後悔を 0 で切り、平均戦略は反復の番号で重み付け）。両者を交互に更新する。
@@ -32,6 +33,7 @@ from games.poker.rules import (
     IDX_RAISE_BASE, RIVER, State, action_from_index, apply_action, legal_mask,
 )
 from . import config
+from . import fastcfr
 from .fasteval import hand_values
 
 N_COMBOS = 1326
@@ -237,24 +239,28 @@ class SortedShowdown:
         self.k = k
 
     def value(self, w: np.ndarray) -> np.ndarray:
-        """(K, n) の相手の重み → (K, n) の「勝ち − 負け」の重み付き合計。"""
-        k = self.k
-        ws = np.take_along_axis(w, self.order, axis=1)
+        """(T, n) の相手の重み → (T, n) の「勝ち − 負け」の重み付き合計。
+
+        T は K か、K = 1 なら何行でもよい（同じボードで何組もまとめて計算する）。
+        """
+        k = w.shape[0]
+        b = lambda a: np.broadcast_to(a, (k, a.shape[1]))  # noqa: E731  K = 1 のときは行を使い回す
+        ws = np.take_along_axis(w, b(self.order), axis=1)
         cum = np.zeros((k, N_COMBOS + 1), dtype=np.float32)
         np.cumsum(ws, axis=1, out=cum[:, 1:])
         total = cum[:, -1:]
-        wins = np.take_along_axis(cum, self.lo, axis=1)
-        loses = total - np.take_along_axis(cum, self.hi, axis=1)
-        wc = np.take_along_axis(w, self.card_sorted, axis=1).reshape(k, 52, 51)
+        wins = np.take_along_axis(cum, b(self.lo), axis=1)
+        loses = total - np.take_along_axis(cum, b(self.hi), axis=1)
+        wc = np.take_along_axis(w, b(self.card_sorted), axis=1).reshape(k, 52, 51)
         cumc = np.zeros((k, 52, 52), dtype=np.float32)
         np.cumsum(wc, axis=2, out=cumc[:, :, 1:])
         flat = cumc.reshape(k, 52 * 52)
-        wins -= np.take_along_axis(flat, self.lo_a, axis=1)
-        wins -= np.take_along_axis(flat, self.lo_b, axis=1)
-        tot_a = np.take_along_axis(flat, self.tot_a, axis=1)
-        tot_b = np.take_along_axis(flat, self.tot_b, axis=1)
-        loses -= tot_a - np.take_along_axis(flat, self.hi_a, axis=1)
-        loses -= tot_b - np.take_along_axis(flat, self.hi_b, axis=1)
+        wins -= np.take_along_axis(flat, b(self.lo_a), axis=1)
+        wins -= np.take_along_axis(flat, b(self.lo_b), axis=1)
+        tot_a = np.take_along_axis(flat, b(self.tot_a), axis=1)
+        tot_b = np.take_along_axis(flat, b(self.tot_b), axis=1)
+        loses -= tot_a - np.take_along_axis(flat, b(self.hi_a), axis=1)
+        loses -= tot_b - np.take_along_axis(flat, b(self.hi_b), axis=1)
         return wins - loses
 
 
@@ -322,15 +328,40 @@ def equity_leaf(board: tuple[int, ...], max_samples: int) -> EquityLeaf:
     return EquityLeaf(board, runouts_for(board, max_samples, _board_seed(board)))
 
 
-@lru_cache(maxsize=64)
-def river_layer(board: tuple[int, ...], max_rivers: int) -> tuple[np.ndarray, SortedShowdown]:
-    """ターンのボード → リバーのカードの候補と、それぞれのショーダウンの計算係。"""
-    rest = np.array(_unknown(board), dtype=np.int64)
-    if len(rest) > max_rivers:
+@lru_cache(maxsize=16)
+def next_cards(board: tuple[int, ...], max_cards: int) -> tuple[int, ...]:
+    """次にめくれるカードの候補。多すぎるときは見本で取る（ボードから決まる乱数）。"""
+    rest = _unknown(board)
+    if len(rest) > max_cards:
         rng = np.random.default_rng(_board_seed(board) ^ 0x5A5A)
-        rest = np.sort(rng.choice(rest, size=max_rivers, replace=False))
-    boards = np.array([tuple(board) + (int(c),) for c in rest], dtype=np.int64)
-    return rest, SortedShowdown(boards)
+        rest = sorted(int(c) for c in rng.choice(rest, size=max_cards, replace=False))
+    return tuple(rest)
+
+
+@lru_cache(maxsize=16)
+def river_boards_leaf(board: tuple[int, ...], max_cards: int) -> fastcfr.RunoutLeaf:
+    """ターンのボード → リバーのボードそれぞれ（K 枚、ランアウトは自分自身 1 つ）のショーダウン。"""
+    cards = next_cards(board, max_cards)
+    return fastcfr.RunoutLeaf.build([[tuple(board) + (c,)] for c in cards])
+
+
+@lru_cache(maxsize=16)
+def runout_leaf(board: tuple[int, ...]) -> fastcfr.LeafOnly:
+    """ターンのボード → リバー全部を平均したショーダウン（オールインや深さ制限の葉）。厳密。"""
+    cards = next_cards(board, 99)
+    return fastcfr.LeafOnly(fastcfr.RunoutLeaf.build([[tuple(board) + (c,) for c in cards]],
+                                                     unknown=52 - len(board)))
+
+
+@lru_cache(maxsize=8)
+def turn_boards_leaf(board: tuple[int, ...], max_cards: int, max_rivers: int) -> fastcfr.RunoutLeaf:
+    """フロップのボード → ターンのボードそれぞれ（K 枚）について、リバー（見本）を平均したショーダウン。"""
+    turns = next_cards(board, max_cards)
+    boards = []
+    for t in turns:
+        tb = tuple(board) + (t,)
+        boards.append([tb + (c,) for c in next_cards(tb, max_rivers)])
+    return fastcfr.RunoutLeaf.build(boards, unknown=52 - len(board) - 1)
 
 
 # ---- 木 ----
@@ -350,10 +381,17 @@ class Showdown:
 
 @dataclass
 class Chance:
-    """ストリートの終わり。次のカードの候補それぞれについて下の木を（まとめて）持つ。"""
+    """ストリートの終わり。次のカードの候補それぞれについて下の木を持つ。
 
-    child: "Decision"
+    下の木そのものは `Layer0.multi`（`fastcfr.MultiTree`）の `index` 番目。
+    `norm` は平均の分母の補正。コンボ i から見て使えるカードは U − 2 枚だが、相手のコンボ j との
+    組で見ると U − 4 枚なので、(U − 4)/(U − 2) を掛けて「組ごとの枚数」で割ったことにする
+    （`fastcfr._leaf_value` と同じ理由）。
+    """
+
+    index: int
     valid: np.ndarray  # (K1, n) そのカードとかぶらないコンボ
+    norm: float = 1.0
 
 
 @dataclass
@@ -368,9 +406,16 @@ class Decision:
 @dataclass
 class SolveSettings:
     iterations: int = 200
-    flop_runouts: int = 100  # フロップの深さ制限の葉で平均するランアウトの見本の数
-    turn_rivers: int = 0  # ターンで、リバーの賭けまで組むときのリバーの候補の数（0 = 深さ制限）
+    flop_runouts: int = 100  # フロップの深さ制限の葉（オールイン）で平均するランアウトの見本の数
+    turn_rivers: int = 0  # ターンで、リバーの賭けまで組むときのリバーの候補の数（0 = 深さ制限、48 = 全部）
+    flop_turns: int = 0  # フロップで、ターンの賭けまで組むときのターンの候補の数（0 = 深さ制限）
     max_raises: int = _MAX_RAISES
+    # 次のストリートの木のレイズの回数の上限。1 にすると「ベット → レイズ → コール/降りる」までで、
+    # ノードが 26 から 8 に減って 3 倍速い。そのストリートに実際に来たら改めて解くので、
+    # 先読みの中では粗くてよい
+    sub_max_raises: int = 1
+    # フロップの先読みで、ターンの木の葉（リバーはそのままショーダウン）で平均するリバーの見本の数
+    leaf_rivers: int = 16
     # 後悔の割引（DCFR, Brown & Sandholm 2019）。CFR+ より少ない反復で均衡に近づく。
     # alpha: 正の後悔を t^alpha/(t^alpha+1) 倍、beta: 負の後悔を t^beta/(t^beta+1) 倍、
     # gamma: 平均戦略を (t/(t+1))^gamma 倍。discount=False なら CFR+（負の後悔を 0 で切る）
@@ -386,42 +431,85 @@ def river_showdown(board: tuple[int, ...]) -> SortedShowdown:
     return SortedShowdown(np.array([board], dtype=np.int64))
 
 
-def build_tree(st: State, raises: int, settings: SolveSettings) -> Decision:
-    """`st`（手番の局面）から、このストリートの賭けの木を組む。"""
-    if st.street == RIVER:
-        leaf0 = river_showdown(tuple(int(c) for c in st.board))
-    else:
-        leaf0 = equity_leaf(tuple(st.board), settings.flop_runouts)
-    rivers = None
-    if st.street == RIVER - 1 and settings.turn_rivers > 0:
-        rivers = river_layer(tuple(st.board), settings.turn_rivers)
+@dataclass
+class Layer0:
+    """層 0 の木（Python のオブジェクト）と、下の木（numba でまとめて走査する `MultiTree`）。
 
-    def rec(s: State, r: int, layer: int) -> Decision:
+    走査は再帰ではなく 2 パスで行う。前向きに到達確率を配り、チャンスノードの分は
+    まとめて 1 回 numba に渡し（ここが重い）、後ろ向きに価値と後悔を集める。
+    """
+
+    root: Decision
+    order: list  # 前順（親が先）のノードの並び
+    chances: list  # Chance ノード（`MultiTree` の木の番号の順）
+    multi: object | None  # fastcfr.MultiTree
+
+
+def build_tree(st: State, raises: int, settings: SolveSettings) -> Layer0:
+    """`st`（手番の局面）から、このストリートの賭けの木を組む（層 0）。
+
+    ストリートの終わりは、設定に応じて次のストリートの木（`fastcfr.MultiTree` の 1 本）につなぐか、
+    「そのままショーダウン」の葉で打ち切る。
+    """
+    board = tuple(int(c) for c in st.board)
+    unknown = 52 - len(board)
+    if st.street == RIVER:
+        leaf0 = river_showdown(board)
+    elif st.street == RIVER - 1:
+        leaf0 = runout_leaf(board)  # リバー 48 通りを平均（厳密）
+    else:
+        leaf0 = equity_leaf(board, settings.flop_runouts)
+    # 次のストリートの木を組むか
+    cards: tuple[int, ...] = ()
+    next_leaf: fastcfr.RunoutLeaf | None = None
+    if st.street == RIVER - 1 and settings.turn_rivers > 0:
+        cards = next_cards(board, settings.turn_rivers)
+        next_leaf = river_boards_leaf(board, settings.turn_rivers)
+    elif st.street == RIVER - 2 and settings.flop_turns > 0:
+        cards = next_cards(board, settings.flop_turns)
+        next_leaf = turn_boards_leaf(board, settings.flop_turns, settings.leaf_rivers)
+    valid = None
+    if next_leaf is not None:
+        valid = np.stack([valid_mask((c,)) for c in cards]).astype(np.float32)
+    norm = (unknown - 4) / (unknown - 2)
+    order: list = []
+    chances: list = []
+    flats: list = []
+
+    def rec(s: State, r: int) -> Decision:
         mask = legal_mask(s, _FRACTIONS, settings.max_raises, r)
         node = Decision(player=s.to_act, actions=[i for i, ok in enumerate(mask) if ok])
+        order.append(node)
         for i in node.actions:
             child = apply_action(s, action_from_index(s, i, _FRACTIONS))
             stake = float(min(child.committed))
             if child.finished:
                 if child.folded >= 0:
-                    node.children.append(Fold(1 - child.folded, stake))
+                    leaf = Fold(1 - child.folded, stake)
                 else:
-                    node.children.append(Showdown(stake, leaf0 if layer == 0 else rivers[1]))
+                    leaf = Showdown(stake, leaf0)
+                node.children.append(leaf)
+                order.append(leaf)
             elif child.street != s.street:
-                if layer == 0 and rivers is not None:
-                    cards, _ = rivers
-                    valid = np.stack([valid_mask((int(c),)) for c in cards]).astype(np.float32)
-                    node.children.append(Chance(rec(child, 0, 1), valid))
+                if next_leaf is not None:
+                    flats.append(fastcfr.build_flat(child, 0, len(cards), settings.sub_max_raises))
+                    ch = Chance(len(chances), valid, norm)
+                    chances.append(ch)
+                    node.children.append(ch)
+                    order.append(ch)
                 else:
-                    node.children.append(Showdown(stake, leaf0 if layer == 0 else rivers[1]))
+                    leaf = Showdown(stake, leaf0)
+                    node.children.append(leaf)
+                    order.append(leaf)
             else:
-                node.children.append(rec(child, r + (1 if i >= IDX_RAISE_BASE else 0), layer))
-        k = 1 if layer == 0 else len(rivers[0])
-        node.regret = np.zeros((len(node.actions), k, N_COMBOS), dtype=np.float32)
-        node.ssum = np.zeros((len(node.actions), k, N_COMBOS), dtype=np.float32)
+                node.children.append(rec(child, r + (1 if i >= IDX_RAISE_BASE else 0)))
+        node.regret = np.zeros((len(node.actions), 1, N_COMBOS), dtype=np.float32)
+        node.ssum = np.zeros((len(node.actions), 1, N_COMBOS), dtype=np.float32)
         return node
 
-    return rec(st, raises, 0)
+    root = rec(st, raises)
+    multi = fastcfr.MultiTree(flats, next_leaf) if flats else None
+    return Layer0(root, order, chances, multi)
 
 
 def _sigma(regret: np.ndarray) -> np.ndarray:
@@ -431,50 +519,82 @@ def _sigma(regret: np.ndarray) -> np.ndarray:
     return np.where(tot > 0.0, pos / np.maximum(tot, 1e-30), 1.0 / n_actions)
 
 
-def _walk(node, reach_me: np.ndarray, reach_opp: np.ndarray, me: int, t: float,
-          plus: bool) -> np.ndarray:
-    """`me` の手それぞれの反実仮想の価値 (K, n)。`me` の後悔と平均戦略を更新する。
+def _traverse(layer: Layer0, reach_me: np.ndarray, reach_opp: np.ndarray, me: int, t: float,
+              plus: bool) -> np.ndarray:
+    """層 0 を 1 回走査して根の価値 (1, n) を返す。`me` の後悔と平均戦略を更新する。
 
     `plus` なら CFR+（後悔を 0 で切り、平均戦略は反復の番号で重み付け）。
     そうでなければ DCFR（割引は `solve()` が反復の終わりにまとめて掛ける）。
     """
-    if isinstance(node, Fold):
-        sign = 1.0 if node.winner == me else -1.0
-        return (sign * node.stake) * compat_sum(reach_opp)
-    if isinstance(node, Showdown):
-        return node.stake * node.leaf.value(reach_opp)
-    if isinstance(node, Chance):
-        v = _walk(node.child, reach_me * node.valid, reach_opp * node.valid, me, t, plus)
-        return (v * node.valid).sum(axis=0, keepdims=True) / np.maximum(
-            node.valid.sum(axis=0, keepdims=True), 1.0)
-    sigma = _sigma(node.regret)
-    if node.player == me:
-        vals = np.stack([
-            _walk(child, reach_me * sigma[a], reach_opp, me, t, plus)
-            for a, child in enumerate(node.children)
-        ])
-        node_val = (sigma * vals).sum(axis=0)
-        node.regret += vals - node_val
-        if plus:
-            np.maximum(node.regret, 0.0, out=node.regret)
-            node.ssum += t * reach_me * sigma
+    rm: dict = {id(layer.root): reach_me}
+    ro: dict = {id(layer.root): reach_opp}
+    sig: dict = {}
+    # 前向き: 到達確率
+    for node in layer.order:
+        if not isinstance(node, Decision):
+            continue
+        sigma = _sigma(node.regret)
+        sig[id(node)] = sigma
+        r_me, r_opp = rm[id(node)], ro[id(node)]
+        for a, child in enumerate(node.children):
+            if node.player == me:
+                rm[id(child)] = r_me * sigma[a]
+                ro[id(child)] = r_opp
+            else:
+                rm[id(child)] = r_me
+                ro[id(child)] = r_opp * sigma[a]
+    # 葉: チャンスノードの下の木はまとめて 1 回で走査する
+    values: dict = {}
+    if layer.multi is not None:
+        k = layer.multi.K
+        in_me = np.empty((len(layer.chances), k, N_COMBOS), dtype=np.float32)
+        in_opp = np.empty((len(layer.chances), k, N_COMBOS), dtype=np.float32)
+        for j, ch in enumerate(layer.chances):
+            in_me[j] = rm[id(ch)] * ch.valid
+            in_opp[j] = ro[id(ch)] * ch.valid
+        out = layer.multi.walk(in_me, in_opp, me)
+        for j, ch in enumerate(layer.chances):
+            values[id(ch)] = (out[j] * ch.valid).sum(axis=0, keepdims=True) / np.maximum(
+                ch.valid.sum(axis=0, keepdims=True) * ch.norm, 1e-6)
+    folds = [n for n in layer.order if isinstance(n, Fold)]
+    if folds:
+        w = np.concatenate([ro[id(n)] for n in folds])
+        cs = compat_sum(w)
+        for j, n in enumerate(folds):
+            sign = 1.0 if n.winner == me else -1.0
+            values[id(n)] = (sign * n.stake) * cs[j:j + 1]
+    shows = [n for n in layer.order if isinstance(n, Showdown)]
+    if shows:
+        w = np.concatenate([ro[id(n)] for n in shows])
+        sv = shows[0].leaf.value(w)
+        for j, n in enumerate(shows):
+            values[id(n)] = n.stake * sv[j:j + 1]
+    # 後ろ向き: 価値と後悔
+    for node in reversed(layer.order):
+        if not isinstance(node, Decision):
+            continue
+        sigma = sig[id(node)]
+        vals = np.stack([values[id(c)] for c in node.children])
+        if node.player == me:
+            node_val = (sigma * vals).sum(axis=0)
+            node.regret += vals - node_val
+            if plus:
+                np.maximum(node.regret, 0.0, out=node.regret)
+                node.ssum += t * rm[id(node)] * sigma
+            else:
+                node.ssum += rm[id(node)] * sigma
+            values[id(node)] = node_val
         else:
-            node.ssum += reach_me * sigma
-        return node_val
-    total = None
-    for a, child in enumerate(node.children):
-        v = _walk(child, reach_me, reach_opp * sigma[a], me, t, plus)
-        total = v if total is None else total + v
-    return total
+            values[id(node)] = vals.sum(axis=0)
+    return values[id(layer.root)]
 
 
 def _decisions(node, out: list) -> list:
+    """層 0 の決定ノードを集める。"""
     if isinstance(node, Decision):
         out.append(node)
         for c in node.children:
             _decisions(c, out)
-    elif isinstance(node, Chance):
-        _decisions(node.child, out)
     return out
 
 
@@ -504,18 +624,21 @@ def solve(st: State, hero: int, ranges: tuple[np.ndarray, np.ndarray], raises: i
     """`st`（`hero` の手番）をレンジ付きで解く。`ranges[p]` は p の各コンボの重み (n,)。"""
     if st.to_act != hero:
         raise ValueError("手番でない側からは解けない")
-    root = build_tree(st, raises, settings)
+    layer = build_tree(st, raises, settings)
     ok = valid_mask(st.board).astype(np.float32)
     r = [np.asarray(ranges[p], dtype=np.float32) * ok for p in (0, 1)]
     for p in (0, 1):
         tot = float(r[p].sum())
         r[p] = (r[p] / tot if tot > 0 else ok / ok.sum())[None, :]
     plus = not settings.discount
-    nodes = _decisions(root, [])
+    nodes = _decisions(layer.root, [])
     for t in range(1, settings.iterations + 1):
         for me in (0, 1):
-            _walk(root, r[me], r[1 - me], me, float(t), plus)
-        if not plus:
+            _traverse(layer, r[me], r[1 - me], me, float(t), plus)
+        if plus:
+            if layer.multi is not None:  # 下の木は numba の中で 0 で切っていないので、ここで切る
+                layer.multi.discount(1.0, 0.0)
+        else:
             ta = t ** settings.alpha
             tb = t ** settings.beta
             pos, neg = ta / (ta + 1.0), tb / (tb + 1.0)
@@ -523,7 +646,9 @@ def solve(st: State, hero: int, ranges: tuple[np.ndarray, np.ndarray], raises: i
             for node in nodes:
                 node.regret *= np.where(node.regret > 0.0, pos, neg)
                 node.ssum *= avg
-    return Solution(root, hero)
+            if layer.multi is not None:
+                layer.multi.discount(pos, neg)
+    return Solution(layer.root, hero)
 
 
 # ---- 収束の確かめ方（テストと調整用） ----
@@ -542,9 +667,7 @@ def _walk_fixed(node, reach_opp: np.ndarray, me: int, best_response: bool) -> np
     if isinstance(node, Showdown):
         return node.stake * node.leaf.value(reach_opp)
     if isinstance(node, Chance):
-        v = _walk_fixed(node.child, reach_opp * node.valid, me, best_response)
-        return (v * node.valid).sum(axis=0, keepdims=True) / np.maximum(
-            node.valid.sum(axis=0, keepdims=True), 1.0)
+        raise NotImplementedError("次のストリートの木を含む解の搾取されやすさは、まだ測れない")
     sigma = _avg_sigma(node)
     if node.player == me:
         vals = np.stack([_walk_fixed(c, reach_opp, me, best_response) for c in node.children])

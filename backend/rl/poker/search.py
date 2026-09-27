@@ -54,7 +54,23 @@ PREFLOP_RUNOUTS = 1500
 
 
 def default_settings() -> dict[int, SolveSettings]:
-    """ストリートごとの解き方。ターンとフロップは「そのままショーダウン」で打ち切る（深さ制限）。"""
+    """ストリートごとの解き方（既定 = 深く読む）。
+
+    - ターン: リバーのカード 48 通りそれぞれについてリバーの賭けまで組む（1 手 4 秒ほど）
+    - フロップ: ターンのカードを 12 枚見本で取り、それぞれターンの賭けまで組む（リバーは
+      見本 16 枚のショーダウン。1 手 6 秒ほど）
+    - リバー: そのまま解く（1 秒ほど）
+    """
+    return {
+        PREFLOP: SolveSettings(iterations=150, flop_runouts=PREFLOP_RUNOUTS),
+        FLOP: SolveSettings(iterations=60, flop_runouts=100, flop_turns=12, leaf_rivers=16),
+        TURN: SolveSettings(iterations=60, turn_rivers=48),
+        RIVER: SolveSettings(iterations=150),
+    }
+
+
+def quick_settings() -> dict[int, SolveSettings]:
+    """速い版（1 手 1〜2 秒）。ターンとフロップは「そのままショーダウン」で打ち切る（深さ制限）。"""
     return {
         PREFLOP: SolveSettings(iterations=150, flop_runouts=PREFLOP_RUNOUTS),
         FLOP: SolveSettings(iterations=120, flop_runouts=100),

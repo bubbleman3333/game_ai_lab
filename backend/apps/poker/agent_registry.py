@@ -1,8 +1,9 @@
 """使える AI の一覧と、読み込み済みのキャッシュ（apps/blob_ai と同じ作り）。
 
 AI の ID:
-    "<run>:best" / "<run>:latest"       ネット + **その場で解く**（本命。`rl.poker.search`）
-    "<run>:best:net" / "<run>:latest:net" ネットだけで打つ（比較用）
+    "<run>:best" / "<run>:latest"         ネット + **その場で深く解く**（本命。`rl.poker.search`）
+    "<run>:best:fast" / "<run>:latest:fast" 同じく、その場で解くが浅い（1 手 1〜2 秒）
+    "<run>:best:net" / "<run>:latest:net"   ネットだけで打つ（比較用）
     "heuristic"                         学習なしのルールベース（比較用。いつでも使える）
     （表形式 `.npz` は "<run>:best" などのまま。拡張子で見分ける）
 
@@ -10,7 +11,8 @@ AI の ID:
 
 - **その場で解く（search）** = `.pt` のネットを土台に、目の前の局面をソルバーで解いて打つ。
   GTO Wizard のような「ソルバーの均衡戦略」をその場で作る。ネットは相手のレンジを
-  推定するモデルとして使う。**これが本命で、既定**。1 手に 1〜2 秒かかる。
+  推定するモデルとして使う。**これが本命で、既定**。深く読む版（ターンでリバーの賭けまで、
+  フロップでターンの賭けまで組む。1 手 4〜6 秒）と、速い版（1 手 1〜2 秒）がある。
 - **ネットだけ（neural）** = `.pt` のニューラルネット（Deep CFR）の平均戦略でそのまま打つ。
   速いが、ネットの覚え方の粗さがそのまま出る（100BB で 44 をオールインするなど）。
 - `.npz` = 表形式の CFR（最初に作った方）。手をバケツにまとめて表に持つ。
@@ -38,6 +40,7 @@ HEURISTIC_ID = "heuristic"
 _CHECKPOINT_KINDS = ("best", "latest")
 SEARCH, NEURAL, TABLE, RULE = "search", "neural", "table", "heuristic"
 NET_SUFFIX = ":net"
+FAST_SUFFIX = ":fast"
 
 
 @dataclass(frozen=True)
@@ -117,9 +120,15 @@ def list_agents() -> list[AgentInfo]:
                         tag = "最新" if kind == "latest" else "対戦成績で選んだ版"
                         found.append(AgentInfo(
                             id=f"{run_dir.name}:{kind}",
-                            label=f"{run_dir.name}（{kind}・{tag}・その場で解く）",
+                            label=f"{run_dir.name}（{kind}・{tag}・深く読む）",
                             run=run_dir.name, kind=kind, family=SEARCH, path=p, updated_at=mtime,
-                            detail=_detail(p, family, mtime),
+                            detail="1 手 4〜6 秒。" + _detail(p, family, mtime),
+                        ))
+                        found.append(AgentInfo(
+                            id=f"{run_dir.name}:{kind}{FAST_SUFFIX}",
+                            label=f"{run_dir.name}（{kind}・{tag}・速い）",
+                            run=run_dir.name, kind=kind, family=SEARCH, path=p, updated_at=mtime,
+                            detail="1 手 1〜2 秒。" + _detail(p, family, mtime),
                         ))
                         found.append(AgentInfo(
                             id=f"{run_dir.name}:{kind}{NET_SUFFIX}",
@@ -144,7 +153,7 @@ def list_agents() -> list[AgentInfo]:
 
     def order(a: AgentInfo) -> tuple:
         if a.family in (SEARCH, NEURAL):
-            return (_rank[a.family], a.kind != "latest", -(a.updated_at or 0))
+            return (_rank[a.family], a.kind != "latest", a.id.endswith(FAST_SUFFIX), -(a.updated_at or 0))
         return (_rank[TABLE], a.kind != "best", -(a.updated_at or 0))
 
     found.sort(key=order)
@@ -186,9 +195,10 @@ def get_policy(agent_id: str | None, seed: int = 0):
         raise NotFound(f"AI '{agent_id}' は見つかりません")
     obj = _loaded(info)
     if info.family == SEARCH:
-        from rl.poker.search import search_player
+        from rl.poker.search import quick_settings, search_player
 
-        return search_player(obj, seed=seed)
+        fast = info.id.endswith(FAST_SUFFIX)
+        return search_player(obj, seed=seed, settings=quick_settings() if fast else None)
     if info.family == NEURAL:
         return players.neural_player(obj, seed=seed)
     # 表形式は「知らない場面」があるので、そこはルールベースで埋める

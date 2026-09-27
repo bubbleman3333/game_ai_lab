@@ -38,7 +38,8 @@
   ポーカーのベット額の枠など（`rl/poker/config.py`）を変えたら `ABSTRACTION_VERSION` を上げる。
   古い重み・戦略は使えなくなる。
 - **ポーカーの AI 本体は「ニューラルネット（Deep CFR）+ その場で解くソルバー」**（`rl/poker/search.py`）。
-  GTO Wizard と同じ考え方で、目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（`rl/poker/solver.py`）。
+  GTO Wizard と同じ考え方で、目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（`rl/poker/solver.py`。
+  次のストリートの木は `rl/poker/fastcfr.py` が numba で走査する）。
   ネット（`rl/poker/train_deep.py`）は相手のレンジを推定するモデルとして使う。
   表形式の CFR（`rl/poker/train.py`）は先に作ったもので、深いスタックが弱いため比較用に残してある。
   ルールベース（`rl/poker/players.heuristic`）は**比較の基準**であって AI ではない。

@@ -139,6 +139,8 @@ def head_to_head_parallel(spec_a: str, spec_b: str, hands: int, workers: int, se
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ[var] = "1"
     workers = max(1, workers)
+    # numba（ソルバーの下の木）はプロセスの中でも並列に回るので、コアを分け合う
+    os.environ["NUMBA_NUM_THREADS"] = str(max(1, (os.cpu_count() or 8) // workers))
     chunk = max(2, hands // workers)
     args = [(spec_a, spec_b, chunk, seed * 1000 + i, start_stack) for i in range(workers)]
     if workers == 1:

@@ -45,8 +45,11 @@ GET  /api/poker/stats/                 AI ごとの人間相手の成績と直�
 
 AI の ID は次のとおり（`agent_registry.py`）。
 
-- **`<学習名>:latest` / `<学習名>:best` = ネット + その場で解く（`rl.poker.search.SearchPlayer`）。本命で既定**。
-  目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（GTO Wizard と同じ考え方）。1 手に 1〜2 秒かかる。
+- **`<学習名>:latest` / `<学習名>:best` = ネット + その場で深く解く（`rl.poker.search.SearchPlayer`）。本命で既定**。
+  目の前の局面を両者のレンジ付きで CFR+ で解いて打つ（GTO Wizard と同じ考え方）。ターンではリバーの
+  賭けまで、フロップではターンの賭けまで木を組むので 1 手に 4〜8 秒かかる。
+- `<学習名>:latest:fast` / `<学習名>:best:fast` = 同じく、その場で解くが、この先のストリートは
+  「そのままショーダウン」で打ち切る。1 手 1〜2 秒。
   局の途中のレンジは `PokerTable.ai_memo` に保存して、リクエストをまたいで持ち越す
   （`services._run_ai` が `load_memo()` / `dump_memo()` を呼ぶ。次の局を配ると消す）。
 - `<学習名>:latest:net` / `<学習名>:best:net` = ニューラルネット（Deep CFR）の平均戦略だけで打つ。比較用。
