@@ -1,4 +1,7 @@
-// 会話の読み上げ。ブラウザ（OS）に入っている日本語の音声合成で、字幕と同時にしゃべらせる。
+// 会話の読み上げ。字幕と同時にしゃべらせる。
+//
+// まず VOICEVOX で作った音声（voice.ts、public/city/voice/）を探して鳴らす。
+// 無いセリフ（あとから足して、まだ音声を作っていないもの）だけ、ブラウザ（OS）の音声合成で読む。
 //
 // Windows の Edge なら「Microsoft Nanami / Keita (Natural)」のような自然な声、Chrome なら「Google 日本語」や
 // 「Microsoft Haruka / Ichiro」などが使える。どの声があるかは環境しだいなので、名前から男女を推測して
@@ -8,6 +11,7 @@
 
 import { sound } from '../../lib/sound'
 import type { Line } from './sim/story'
+import { playVoice } from './voice'
 
 const FEMALE = /nanami|haruka|ayumi|sayaka|kyoko|mayu|aoi|shiori|google|mizuki|female|女性/i
 const MALE = /keita|ichiro|otoya|daichi|naoki|takumi|kenji|male|男性/i
@@ -48,7 +52,15 @@ const spoken = (text: string) => text.replace(/（[^）]*）/g, '').replace(/[�
 /**
  * 1 行しゃべる。しゃべり終わったら（または声が無ければ、読むのにかかる時間がたったら）解決する
  */
-export function speak(line: Line): Promise<void> {
+export async function speak(line: Line): Promise<void> {
+  if (await playVoice(line)) {
+    await new Promise((r) => window.setTimeout(r, 300)) // 次の人がしゃべるまでの間
+    return
+  }
+  return speakTts(line)
+}
+
+function speakTts(line: Line): Promise<void> {
   const fallback = 1800 + line.text.length * 110
   return new Promise((resolve) => {
     const done = () => { clearTimeout(timer); resolve() }

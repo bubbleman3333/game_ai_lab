@@ -8,7 +8,7 @@
 import { BLOCKS, CityMap, PITCH, SIDEWALK_MID, blockCenter } from './cityMap'
 import { pick, range, type Rng } from './rng'
 
-export type PedMode = 'walk' | 'wait' | 'cross' | 'flee' | 'return' | 'fly' | 'down' | 'stagger' | 'officer'
+export type PedMode = 'walk' | 'wait' | 'cross' | 'flee' | 'return' | 'fly' | 'down' | 'stagger' | 'officer' | 'watch'
 
 export interface PedLook {
   height: number
@@ -63,7 +63,15 @@ export interface Ped {
    *   back … パトカーへ戻る（着いたら乗り込んで消える）
    */
   officer: { car: number; phase: 'out' | 'back'; run: boolean; face: number } | null
+  /**
+   * 野次馬なら、出てきた建物の入口と、見ている場所。
+   * 入口から少し出て立ち止まり、スマホを構えて騒ぎを眺める。飽きたら（leaving）入口へ戻って消える
+   */
+  watch: { doorX: number; doorZ: number; lookX: number; lookZ: number; t: number; leaving: boolean } | null
 }
+
+/** 女性の声で叫ぶか（見た目から決める） */
+export const isFemale = (p: Ped) => p.look.hairStyle === 1 || p.look.skirt
 
 /** 警官の制服（紺のシャツとズボン、制帽） */
 const UNIFORM: PedLook = {
@@ -154,7 +162,7 @@ export class Pedestrians {
         id: this.nextId++, x: px, z: pz, y: 0, yaw, vx: 0, vy: 0, vz: 0, mode: 'walk',
         walkSpeed: range(rng, 1.05, 1.6), bi, bj, t, dirSign: rng() < 0.5 ? 1 : -1, offset,
         tx: 0, tz: 0, crossTo: [0, 0, 0], crossAxis: 0, crossNode: [0, 0], timer: 0,
-        phase: rng() * 10, tilt: 0, fallYaw: 0, spin: 0, look: randomLook(rng), downTime: 0, officer: null,
+        phase: rng() * 10, tilt: 0, fallYaw: 0, spin: 0, look: randomLook(rng), downTime: 0, officer: null, watch: null,
       }
       this.list.push(p)
       return p
@@ -169,7 +177,21 @@ export class Pedestrians {
       bi: 0, bj: 0, t: 0, dirSign: 1, offset: 0, tx: x, tz: z, crossTo: [0, 0, 0], crossAxis: 0, crossNode: [0, 0],
       timer: 0, phase: 0, tilt: 0, fallYaw: 0, spin: 0,
       look: { ...UNIFORM, height: range(this.rng, 0.97, 1.05), skin: pick(this.rng, [0xe0ac80, 0xf1c9a5, 0xc68c5a]) },
-      downTime: 0, officer: { car, phase: 'out', run: false, face: 0 },
+      downTime: 0, officer: { car, phase: 'out', run: false, face: 0 }, watch: null,
+    }
+    this.list.push(p)
+    return p
+  }
+
+  /** 建物の入口 (x, z) から野次馬を出す。(ox, oz) の向きへ少し歩いて立ち止まる */
+  addWatcher(x: number, z: number, ox: number, oz: number, lookX: number, lookZ: number): Ped {
+    const rng = this.rng
+    const p: Ped = {
+      id: this.nextId++, x, z, y: 0, yaw: Math.atan2(ox, oz), vx: 0, vy: 0, vz: 0, mode: 'watch', walkSpeed: range(rng, 1.1, 1.6),
+      bi: 0, bj: 0, t: 0, dirSign: 1, offset: 0, tx: x + ox * range(rng, 2, 4.5) + oz * range(rng, -2, 2),
+      tz: z + oz * range(rng, 2, 4.5) - ox * range(rng, -2, 2), crossTo: [0, 0, 0], crossAxis: 0, crossNode: [0, 0],
+      timer: 0, phase: rng() * 10, tilt: 0, fallYaw: 0, spin: 0, look: randomLook(rng), downTime: 0, officer: null,
+      watch: { doorX: x, doorZ: z, lookX, lookZ, t: range(rng, 18, 35), leaving: false },
     }
     this.list.push(p)
     return p
@@ -178,6 +200,7 @@ export class Pedestrians {
   /** 逃げ出す。(x, z) は逃げる相手の位置 */
   scare(p: Ped, x: number, z: number, strength = 1): void {
     if (isDown(p) || p.mode === 'stagger' || p.mode === 'officer') return
+    p.watch = null
     let ax = p.x - x, az = p.z - z
     const d = Math.hypot(ax, az) || 1
     ax /= d; az /= d
@@ -345,6 +368,28 @@ export class Pedestrians {
           }
         }
         this.pushOutOfBuildings(p)
+        break
+      }
+      case 'watch': {
+        // 入口から出て、立ち止まって騒ぎを眺める。時間がたつと入口へ戻る
+        const w = p.watch!
+        w.t -= dt
+        if (w.t < 0 && !w.leaving) { w.leaving = true; p.tx = w.doorX; p.tz = w.doorZ }
+        const dx = p.tx - p.x, dz = p.tz - p.z
+        const d = Math.hypot(dx, dz)
+        if (d > 0.2) {
+          const step = Math.min(p.walkSpeed * dt, d)
+          p.x += (dx / d) * step
+          p.z += (dz / d) * step
+          p.yaw = Math.atan2(dx, dz)
+          p.phase += p.walkSpeed * dt * 3.4
+        } else if (w.leaving) {
+          p.mode = 'down'
+          p.downTime = 1e9 // 建物に入った人は次の掃除で消える
+        } else {
+          const face = Math.atan2(w.lookX - p.x, w.lookZ - p.z)
+          p.yaw += Math.atan2(Math.sin(face - p.yaw), Math.cos(face - p.yaw)) * Math.min(1, dt * 3)
+        }
         break
       }
       case 'officer': {

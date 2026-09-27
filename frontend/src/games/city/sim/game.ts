@@ -12,7 +12,8 @@ import { CityMap, SEAWALL, nodeX } from './cityMap'
 import { MAPS, type MapConfig } from './maps'
 import { Missions, roadSpot, sideMarkers, type Marker, type MissionHooks, type MissionStatus } from './missions'
 import { CHAPTERS, type Line, type StoryProgress } from './story'
-import { Pedestrians, isDown, type Ped } from './pedestrians'
+import { CROWD_BARKS, PAIN, PANIC, POLICE_BARKS, QUESTION } from './voiceLines'
+import { Pedestrians, isDown, isFemale, type Ped } from './pedestrians'
 import { PoliceDriver, canSee } from './police'
 import { makeRng, pick, type Rng } from './rng'
 import { Heli, type Shot } from './heli'
@@ -82,6 +83,8 @@ export type GameEvent =
   | { kind: 'crash'; x: number; z: number; impact: number; player: boolean }
   /** 職務質問の始まり・終わり */
   | { kind: 'questioning'; phase: 'start' | 'released' | 'fled' | 'found' }
+  /** その場所から聞こえる声（パトカーの呼びかけ・野次馬・悲鳴）。rate は声の高さの揺らぎ */
+  | { kind: 'voice'; line: Line; x: number; z: number; rate: number }
   /** 車のドアの開け閉め（警官の乗り降り） */
   | { kind: 'door'; x: number; z: number }
   /** 店のショーウィンドウを突き破った（nx, nz は壁の外向き） */
@@ -416,6 +419,7 @@ export class Game {
     if (steps >= 12) this.acc = 0
 
     this.updateDamage(dt)
+    this.updateCrowd(dt)
     this.updateSea(dt)
     this.updateHeli(dt)
     this.updateCrews()
@@ -519,6 +523,7 @@ export class Game {
         p.officer = null
         this.peds.knock(p, v.body.vx, v.body.vz, sp)
         const isMe = v === this.player
+        if (sp >= 2.5) this.say(pickLine(this.rng, isFemale(p) ? PAIN.female : PAIN.male), p.x, p.z)
         if (isMe && wasOfficer && sp >= 3) { this.addHeat(140); this.addScore(100, '警官') }
         this.events.push({ kind: 'pedHit', x: p.x, z: p.z, speed: sp, player: isMe })
         this.scareAround(p.x, p.z, 22)
@@ -547,7 +552,85 @@ export class Game {
 
   private scareAround(x: number, z: number, r: number): void {
     for (const p of this.peds.list) {
-      if (Math.abs(p.x - x) < r && Math.abs(p.z - z) < r && Math.hypot(p.x - x, p.z - z) < r) this.peds.scare(p, x, z)
+      if (Math.abs(p.x - x) < r && Math.abs(p.z - z) < r && Math.hypot(p.x - x, p.z - z) < r) this.scare(p, x, z)
+    }
+  }
+
+  /** 人を逃がす。ときどき叫ぶ（全員が叫ぶとうるさいので間引く） */
+  private scare(p: Ped, x: number, z: number, strength = 1): void {
+    const was = p.mode
+    this.peds.scare(p, x, z, strength)
+    if (was !== 'flee' && p.mode === 'flee' && this.time - this.lastPanic > 0.9 && this.rng() < 0.5) {
+      this.lastPanic = this.time
+      this.say(pickLine(this.rng, isFemale(p) ? PANIC.female : PANIC.male), p.x, p.z)
+    }
+  }
+  private lastPanic = -9
+
+  /** その場所から声を出す（人ごとに声の高さを少し変える） */
+  private say(line: Line, x: number, z: number): void {
+    this.events.push({ kind: 'voice', line, x, z, rate: 0.93 + this.rng() * 0.16 })
+  }
+
+  // --- 野次馬と、パトカーの呼びかけ ---------------------------------------------------------
+  private nextBark = 5
+  private nextCrowd = 3
+  private crowdBoost = 0
+
+  /**
+   * 追われているあいだ・大きな騒ぎ（爆発・店の破壊）のあと、近くの建物から野次馬が出てきて眺める。
+   * パトカーは拡声器で呼びかけ、野次馬はつぶやく
+   */
+  private updateCrowd(dt: number): void {
+    const me = this.player.body
+    this.crowdBoost = Math.max(0, this.crowdBoost - dt)
+    const excited = this.stars > 0 || this.crowdBoost > 0
+    const watchers = this.peds.list.filter((p) => p.watch && !p.watch.leaving)
+    // 野次馬を出す（多くても 10 人）
+    this.nextCrowd -= dt
+    if (excited && this.nextCrowd <= 0 && watchers.length < 10) {
+      this.nextCrowd = 0.6 + this.rng() * 1.2
+      this.spawnWatcher(me.x, me.z)
+    }
+    for (const p of watchers) { p.watch!.lookX = me.x; p.watch!.lookZ = me.z }
+    // 野次馬のつぶやき
+    if (watchers.length > 0 && this.rng() < dt * 0.25) {
+      const p = watchers[Math.floor(this.rng() * watchers.length)]
+      if (Math.hypot(p.x - me.x, p.z - me.z) < 45) this.say(pickLine(this.rng, CROWD_BARKS), p.x, p.z)
+    }
+    // パトカーの拡声器
+    this.nextBark -= dt
+    if (this.stars > 0 && this.nextBark <= 0) {
+      this.nextBark = 6 + this.rng() * 6
+      const cop = this.vehicles.filter((v) => v.role === 'police' && v.police && !v.wrecked)
+        .sort((a, b) => Math.hypot(a.body.x - me.x, a.body.z - me.z) - Math.hypot(b.body.x - me.x, b.body.z - me.z))[0]
+      if (cop && Math.hypot(cop.body.x - me.x, cop.body.z - me.z) < 70) this.say(pickLine(this.rng, POLICE_BARKS), cop.body.x, cop.body.z)
+    }
+    this.peds.remove((q: Ped) => q.mode === 'down' && q.downTime >= 1e9)
+  }
+
+  /** 近くの建物の壁（道路側）に入口を決めて、野次馬を 1 人出す */
+  private spawnWatcher(x: number, z: number): void {
+    for (let tries = 0; tries < 8; tries++) {
+      const a = this.rng() * Math.PI * 2, r = 22 + this.rng() * 35
+      const tx = x + Math.sin(a) * r, tz = z + Math.cos(a) * r
+      let best: { x: number; z: number; nx: number; nz: number } | null = null
+      let bestD = 30
+      for (const B of this.map.buildings) {
+        if (B.x1 < tx - 40 || B.x0 > tx + 40 || B.z1 < tz - 40 || B.z0 > tz + 40) continue
+        // 壁の上でいちばん近い点と、その面の外向き
+        const px = Math.min(Math.max(tx, B.x0), B.x1), pz = Math.min(Math.max(tz, B.z0), B.z1)
+        const d = Math.hypot(px - tx, pz - tz)
+        if (d >= bestD) continue
+        const dl = px - B.x0, dr = B.x1 - px, dd = pz - B.z0, du = B.z1 - pz
+        const m = Math.min(dl, dr, dd, du)
+        const [nx, nz] = m === dl ? [-1, 0] : m === dr ? [1, 0] : m === dd ? [0, -1] : [0, 1]
+        bestD = d
+        best = { x: px + nx * 0.4, z: pz + nz * 0.4, nx, nz }
+      }
+      if (!best || this.map.insideBuilding(best.x + best.nx * 2, best.z + best.nz * 2, 0.2)) continue
+      this.peds.addWatcher(best.x, best.z, best.nx, best.nz, x, z)
+      return
     }
   }
 
@@ -564,9 +647,9 @@ export class Game {
       if (Math.abs(dx) > 20 || Math.abs(dz) > 20) continue
       const d = Math.hypot(dx, dz)
       const ahead = dx * fx + dz * fz
-      if (me.honking && d < 18 && ahead > -3) this.peds.scare(p, b.x, b.z)
-      else if (onWalk && sp > 5 && d < 9 && ahead > -2) this.peds.scare(p, b.x, b.z)
-      else if (sp > 8 && d < 4.5 && ahead > 0) this.peds.scare(p, b.x, b.z)
+      if (me.honking && d < 18 && ahead > -3) this.scare(p, b.x, b.z)
+      else if (onWalk && sp > 5 && d < 9 && ahead > -2) this.scare(p, b.x, b.z)
+      else if (sp > 8 && d < 4.5 && ahead > 0) this.scare(p, b.x, b.z)
     }
     void dt
   }
@@ -585,6 +668,7 @@ export class Game {
     this.smashed.push({ x: wx, z: wz, nx, nz })
     const isMe = v === this.player
     this.events.push({ kind: 'shopSmash', x: wx, z: wz, nx, nz, speed: sp, player: isMe })
+    this.crowdBoost = 30
     // 店の中は物が多いので、突っ込むとぐっと減速する
     v.body.vx *= 0.6
     v.body.vz *= 0.6
@@ -644,6 +728,7 @@ export class Game {
     v.hazard = false
     const { x, z } = v.body
     this.events.push({ kind: 'explosion', x, z })
+    this.crowdBoost = 40
     v.body.vx *= 0.3; v.body.vz *= 0.3
     // 周りの車を吹き飛ばし、傷つける（連鎖して爆発することもある）
     for (const o of this.vehicles) {
@@ -661,7 +746,7 @@ export class Game {
     for (const p of this.peds.list) {
       const d = Math.hypot(p.x - x, p.z - z)
       if (d < 8 && p.mode !== 'down') this.peds.blast(p, x, z, 30)
-      else if (d < 30) this.peds.scare(p, x, z, 1.4)
+      else if (d < 30) this.scare(p, x, z, 1.4)
     }
     this.map.props.forEach((pr, i) => {
       if (!pr.breakable || this.broken[i]) return
@@ -892,10 +977,7 @@ export class Game {
         q.hazard = true
         this.dropCrew(q, 1, false)
         this.events.push({ kind: 'questioning', phase: 'start' })
-        this.events.push({ kind: 'dialogue', lines: [
-          { who: '警察官', text: 'すみません、ちょっといいですか。免許証を見せてもらえます？' },
-          { who: '警察官', text: 'このあたりで事故が続いてましてね。少しお話を聞かせてください' },
-        ] })
+        this.events.push({ kind: 'dialogue', lines: QUESTION.start })
       }
       return
     }
@@ -904,7 +986,7 @@ export class Game {
     if (sp > 5 && d > 9) {
       // 振り切って逃げた
       this.events.push({ kind: 'questioning', phase: 'fled' })
-      this.events.push({ kind: 'dialogue', lines: [{ who: '警察官', text: '待ちなさい！　止まりなさい！' }] })
+      this.events.push({ kind: 'dialogue', lines: QUESTION.fled })
       const cop = q
       this.endQuestion(null)
       this.crewBack(cop, true)
@@ -915,10 +997,7 @@ export class Game {
     if (this.questionT > QUESTION_TIME) {
       if (this.rng() < 0.3) {
         this.events.push({ kind: 'questioning', phase: 'found' })
-        this.events.push({ kind: 'dialogue', lines: [
-          { who: '警察官', text: '……トランクの中のこれは何ですか？　署まで来てもらいます' },
-          { who: 'レン', text: '（まずい。逃げるしかない）' },
-        ] })
+        this.events.push({ kind: 'dialogue', lines: QUESTION.found })
         const cop = q
         this.endQuestion(null)
         this.crewBack(cop, false)
@@ -926,7 +1005,7 @@ export class Game {
         this.setStars(2)
       } else {
         this.events.push({ kind: 'questioning', phase: 'released' })
-        this.events.push({ kind: 'dialogue', lines: [{ who: '警察官', text: 'ご協力ありがとうございました。安全運転でお願いしますね' }] })
+        this.events.push({ kind: 'dialogue', lines: QUESTION.released })
         this.endQuestion(q)
       }
     }
@@ -1144,3 +1223,5 @@ export class Game {
     for (let k = 0; k < 3 && alive + k < this.pedCount; k++) this.peds.spawnNear(p.x, p.z, 70, 175)
   }
 }
+
+const pickLine = (rng: Rng, lines: Line[]): Line => lines[Math.floor(rng() * lines.length)]

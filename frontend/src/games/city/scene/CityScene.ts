@@ -25,6 +25,7 @@ import { buildCity, type CityModel } from './buildCity'
 import { buildCarModel, setCarNight, type CarModel } from './carModels'
 import { Effects } from './effects'
 import { PedModels } from './pedModels'
+import { PedSkinned } from './pedSkinned'
 import { buildHeli, type HeliModel } from './heliModel'
 import { buildScenery, type Scenery } from './scenery'
 import * as TX from './textures'
@@ -73,6 +74,8 @@ export class CityScene {
   private theme: CityTheme
   private cars = new Map<number, CarView>()
   private peds = new PedModels()
+  /** 近くの人は骨格つきの人のモデルで描く */
+  private skinned = new PedSkinned()
   private effects: Effects
   private sky = new Sky()
   private skyScene = new THREE.Scene()
@@ -151,7 +154,8 @@ export class CityScene {
     this.scenery = buildScenery(game.config)
     this.scene.add(this.city.group, this.scenery.group, this.smashGroup)
     this.effects = new Effects(this.theme.weather)
-    this.scene.add(this.peds.group, this.effects.group, this.markers)
+    this.scene.add(this.peds.group, this.skinned.group, this.effects.group, this.markers)
+    this.skinned.load()
     this.glowTex = TX.softDot(128, 1.3)
 
     // ミッションの輪（光の筒）と、標的の上の矢印
@@ -506,7 +510,10 @@ export class CityScene {
     const g = this.game
     this.updateSky(g.clock)
     this.syncCars(dt)
-    this.peds.update(g.peds.list, this.time, (x, z) => (g.map.surface(x, z) === 'road' ? 0 : CURB_HEIGHT))
+    const groundY = (x: number, z: number) => (g.map.surface(x, z) === 'road' ? 0 : CURB_HEIGHT)
+    const pb = g.player.body
+    const near = this.skinned.update(dt, g.peds.list, pb.x, pb.z, g.stars > 0, groundY)
+    this.peds.update(g.peds.list, this.time, groundY, near)
     this.city.update(g.time, g.broken, g.brokenYaw)
     this.updateMarkers()
     this.updateCamera(dt)
@@ -609,6 +616,7 @@ export class CityScene {
   }
 
   dispose(): void {
+    this.skinned.dispose()
     this.heli?.dispose()
     this.smashTex.dispose(); this.smashMat.dispose(); this.smashGeo.dispose(); this.goodsGeo.dispose(); this.goodsMat.dispose()
     this.scenery.dispose()

@@ -18,11 +18,22 @@ import { sound } from '../../lib/sound'
 import type { ThemeId } from './sim/maps'
 import type { GameEvent, Vehicle } from './sim/game'
 import type { Heli } from './sim/heli'
+import { playVoice } from './voice'
 import { forwardSpeed, speedOf } from './sim/vehicle'
 
 const C = 343 // 音の速さ（m/s）
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
+
+/**
+ * 録音した効果音（public/city/sfx/、CC0。出典は README）。名前 → 何本あるか。
+ * 同じ種類を何本か持っておき、鳴らすたびに 1 本を選んで高さも少し変える（同じ音の繰り返しに聞こえないように）
+ */
+const SFX: Record<string, number> = {
+  glass_break: 6, glass_fall: 4, metal_hit: 6, metal_hit_b: 2, metal_fall: 5, thud: 6, items: 2, wood_break: 4,
+  door_open: 1, door_close: 1, horn: 1,
+}
+const SFX_BASE = `${import.meta.env.BASE_URL}city/sfx/`
 
 /** 車種ごとのエンジンの性格 */
 const ENGINES: Record<string, { idle: number; red: number; gears: number[]; cyl: number; turbo: boolean; tone: number }> = {
@@ -165,6 +176,52 @@ export class CityAudio {
   private nextBird = 2
   private nextDistant = 8
   private lastCrash = 0
+  /** 読み込んだ録音（種類ごとに何本か） */
+  private samples = new Map<string, AudioBuffer[]>()
+
+  private loadSamples(): void {
+    const ctx = this.ctx!
+    for (const [name, n] of Object.entries(SFX)) {
+      for (let i = 1; i <= n; i++) {
+        const file = n === 1 ? name : name === 'metal_hit_b' ? `metal_hit_b0${i}` : `${name}_0${i}`
+        void fetch(`${SFX_BASE}${file}.mp3`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+          .then((a) => ctx.decodeAudioData(a)).then((b) => {
+            const list = this.samples.get(name) ?? []
+            list.push(b)
+            this.samples.set(name, list)
+          }).catch(() => { /* 無ければ合成音だけで鳴らす */ })
+      }
+    }
+    // 街の遠い車の流れ（高速道路の録音をくり返す）
+    void fetch(`${SFX_BASE}amb_traffic.mp3`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((a) => ctx.decodeAudioData(a)).then((b) => {
+        if (!this.ctx) return
+        const src = ctx.createBufferSource()
+        src.buffer = b
+        src.loop = true
+        const g = this.gainNode(0)
+        src.connect(g).connect(this.bus)
+        src.start()
+        this.nodes.push(src)
+        this.trafficRec = g
+      }).catch(() => { /* 無ければ合成のゴーッという音だけ */ })
+  }
+  private trafficRec: GainNode | null = null
+
+  /** 録音を 1 本鳴らす。無ければ false（合成音で代わりに鳴らす） */
+  private sample(name: string, dest: AudioNode, gain: number, opts: { rate?: number; delay?: number } = {}): boolean {
+    const list = this.samples.get(name)
+    if (!list || list.length === 0 || !this.ctx) return false
+    const ctx = this.ctx
+    const src = ctx.createBufferSource()
+    src.buffer = list[Math.floor(Math.random() * list.length)]
+    src.playbackRate.value = (opts.rate ?? 1) * rnd(0.9, 1.1)
+    const g = ctx.createGain()
+    g.gain.value = gain
+    src.connect(g).connect(dest)
+    src.start(ctx.currentTime + (opts.delay ?? 0))
+    return true
+  }
   started = false
 
   /** 最初のキー入力・クリックのあとで呼ぶ（ブラウザは操作があるまで音を出させない） */
@@ -196,6 +253,7 @@ export class CityAudio {
     this.buildTires()
     this.buildAmbience()
     this.buildHorn()
+    this.loadSamples()
   }
 
   private loop(buf: AudioBuffer, rate = 1): AudioBufferSourceNode {
@@ -552,8 +610,12 @@ export class CityAudio {
         delay: rnd(0, 0.12 + k * 0.35) ** 1.5,
       })
     }
+    // 録音の金属音（鉄板がひしゃげる）。強いほど何本も重ね、部品が落ちる音も足す
+    const rec = this.sample('metal_hit', p, 0.6 + k * 1.2, { rate: 1.1 - k * 0.25 })
+    if (rec && k > 0.3) this.sample('metal_hit_b', p, 0.5 + k, { rate: 0.9, delay: 0.02 })
+    if (rec && k > 0.45) this.sample('metal_fall', p, 0.5 + k * 0.6, { delay: 0.15 + Math.random() * 0.2 })
     // 金属の鳴り（板が震える、少し長く残る響き）
-    for (const f of [310, 730, 1280, 2150]) {
+    for (const f of rec ? [] : [310, 730, 1280, 2150]) {
       this.burst(this.white, p, { gain: (0.05 + k * 0.12) * rnd(0.6, 1), dur: 0.3 + k * 0.6, freq: f * rnd(0.9, 1.1), q: rnd(20, 45), delay: 0.01 })
     }
     // 部品が路面に落ちて転がる
@@ -567,6 +629,10 @@ export class CityAudio {
 
   /** ガラスが砕ける「バリン」: 鋭い割れる瞬間と、細かい破片がシャラシャラと散らばる音 */
   private glass(dest: AudioNode, k: number): void {
+    if (this.sample('glass_break', dest, 0.9 * k + 0.3)) {
+      this.sample('glass_fall', dest, 0.6 * k, { delay: 0.25 })
+      return
+    }
     this.burst(this.white, dest, { gain: 0.6 * k, dur: 0.08, type: 'highpass', freq: 2500, q: 0.7, attack: 0.0005 })
     this.burst(this.white, dest, { gain: 0.35 * k, dur: 0.45, type: 'highpass', freq: 5000, to: 3000, q: 0.7, delay: 0.01 })
     for (let i = 0; i < 40; i++) {
@@ -584,6 +650,7 @@ export class CityAudio {
     const k = clamp(speed / 20, 0.25, 1)
     this.burst(this.brown, p, { gain: 0.6 + k * 0.8, dur: 0.2, type: 'lowpass', freq: 420, q: 1, attack: 0.001 })
     this.tone(p, { freq: 85, to: 45, dur: 0.18, gain: 0.5 * k })
+    this.sample('thud', p, 0.8 + k * 0.8, { rate: 0.8 })
     this.burst(this.white, p, { gain: 0.12 * k, dur: 0.07, type: 'bandpass', freq: 1300, q: 2, delay: 0.015 })
     // ボンネットがへこむ鈍い金属音
     this.burst(this.white, p, { gain: 0.1 * k, dur: 0.25, freq: 520, q: 18, delay: 0.01 })
@@ -606,7 +673,9 @@ export class CityAudio {
   clang(x: number, z: number): void {
     if (!this.ctx) return
     const p = this.panner(x, 2, z, 7)
-    for (const f of [410, 1080, 1790, 2600]) {
+    const rec = this.sample('metal_hit', p, 1.0, { rate: 0.8 })
+    if (rec) this.sample('metal_fall', p, 0.9, { delay: 0.45, rate: 0.85 })
+    for (const f of rec ? [] : [410, 1080, 1790, 2600]) {
       this.burst(this.white, p, { gain: 0.1, dur: rnd(0.4, 0.9), freq: f, q: 40 })
     }
     this.tone(p, { freq: 90, to: 50, dur: 0.2, gain: 0.3 })
@@ -628,6 +697,10 @@ export class CityAudio {
     this.crash(x, z, k, true)
     const p = this.panner(x, 1.5, z, 10)
     this.glass(p, 1.3)
+    this.sample('glass_break', p, 1.2, { delay: 0.08, rate: 0.85 })
+    this.sample('wood_break', p, 0.9, { delay: 0.2 })
+    this.sample('items', p, 1.0, { delay: 0.35 })
+    this.sample('items', p, 0.8, { delay: 0.9 })
     // 棚が倒れる・商品が転がる
     for (let i = 0; i < 25; i++) {
       this.burst(i % 3 ? this.white : this.brown, p, { gain: rnd(0.05, 0.2), dur: rnd(0.04, 0.15), freq: rnd(300, 3000), q: rnd(2, 10), delay: rnd(0.1, 1.6) })
@@ -698,6 +771,7 @@ export class CityAudio {
   door(x: number, z: number): void {
     if (!this.ctx) return
     const p = this.panner(x, 1, z, 5)
+    if (this.sample('door_open', p, 1.0)) { this.sample('door_close', p, 1.0, { delay: 0.7 }); return }
     this.burst(this.white, p, { gain: 0.15, dur: 0.05, freq: 2200, q: 4 })
     this.burst(this.brown, p, { gain: 0.5, dur: 0.15, type: 'lowpass', freq: 380, delay: 0.35 })
     this.tone(p, { freq: 120, to: 65, dur: 0.12, gain: 0.3, delay: 0.35 })
@@ -736,6 +810,7 @@ export class CityAudio {
       switch (e.kind) {
         case 'crash': this.crash(e.x, e.z, clamp(e.impact / 16, 0.12, 1), e.impact > 11); break
         case 'door': this.door(e.x, e.z); break
+        case 'voice': void playVoice(e.line, { at: { x: e.x, z: e.z }, dest: this.bus, rate: e.rate, gain: 1.6 }); break
         case 'splash': this.splash(e.x, e.z); break
         case 'shopSmash': this.shopSmash(e.x, e.z, e.speed); break
         case 'shot': this.shot(e.fx, e.fy, e.fz, e.tx, e.tz, e.hit); break
@@ -797,7 +872,8 @@ export class CityAudio {
     this.updateRotor(heli)
 
     // 環境音: 夜は車の流れが減る。雨の街はずっと雨音
-    this.set(this.amb.traffic.gain, 0.035 + (1 - night) * 0.04, 0.5)
+    this.set(this.amb.traffic.gain, (this.trafficRec ? 0.012 : 0.035) + (1 - night) * 0.04, 0.5)
+    if (this.trafficRec) this.set(this.trafficRec.gain, 0.12 + (1 - night) * 0.18, 0.5)
     this.set(this.amb.trafficF.frequency, 160 + Math.sin(this.time * 0.13) * 60, 0.5)
     this.nextBird -= dt
     if (this.nextBird < 0) {
@@ -842,6 +918,7 @@ export class CityAudio {
 
   private distantHorn(x: number, z: number): void {
     const p = this.panner(x, 1, z, 20)
+    if (this.sample('horn', p, 0.7)) { if (Math.random() < 0.5) this.sample('horn', p, 0.7, { delay: 0.55 }); return }
     for (const f of [415, 523]) this.tone(p, { freq: f, dur: rnd(0.3, 0.8), gain: 0.05, type: 'square' })
   }
 

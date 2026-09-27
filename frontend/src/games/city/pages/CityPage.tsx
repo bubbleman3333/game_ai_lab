@@ -145,6 +145,17 @@ export function CityPage() {
           見つからないまま逃げ続けると手配が解ける。止まったまま囲まれると逮捕、車が壊れると WASTED。
         </p>
       </section>
+      <section className="city-credits">
+        <h2>クレジット</h2>
+        <p className="muted">
+          声: VOICEVOX:玄野武宏 / VOICEVOX:冥鳴ひまり / VOICEVOX:麒ヶ島宗麟 / VOICEVOX:白上虎太郎 / VOICEVOX:雀松朱司 /
+          VOICEVOX:剣崎雌雄 / VOICEVOX:春日部つむぎ / VOICEVOX:九州そら / VOICEVOX:WhiteCUL / VOICEVOX:猫使アル
+        </p>
+        <p className="muted">
+          人の 3D モデル: Quaternius「Ultimate Modular Men / Women Pack」（CC0）。
+          効果音の一部: OpenGameArt.org「75 CC0 breaking / falling / hit sfx」「100 CC0 SFX #2」「Car Sound Effects Pack」（CC0）
+        </p>
+      </section>
       <p><Link to="/">← ゲーム一覧へ</Link></p>
     </div>
   )

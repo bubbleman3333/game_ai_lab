@@ -196,3 +196,22 @@ describe('店を壊す', () => {
     expect(b.x).toBeLessThan(B.x0 + 1.6 + 2.5)
   })
 })
+
+describe('野次馬と声', () => {
+  it('追われていると建物から野次馬が出てきて、パトカーが呼びかける', () => {
+    const g = new Game()
+    g.setStars(2)
+    let voices = 0
+    for (let k = 0; k < 60 * 15; k++) for (const e of g.update(1 / 60, NONE)) if (e.kind === 'voice') voices++
+    expect(g.peds.list.some((p) => p.watch !== null)).toBe(true)
+    expect(voices).toBeGreaterThan(0)
+  })
+
+  it('声を付けるセリフに重複や空のものがない', async () => {
+    const { allVoiceLines, spokenText, voiceKey } = await import('./voiceLines')
+    const lines = allVoiceLines()
+    expect(lines.length).toBeGreaterThan(80)
+    expect(new Set(lines.map(voiceKey)).size).toBe(lines.length)
+    for (const l of lines) expect(spokenText(l.text).length).toBeGreaterThan(0)
+  })
+})

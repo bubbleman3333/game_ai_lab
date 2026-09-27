@@ -311,12 +311,25 @@ export class PedModels {
     this.meshes[part].setMatrixAt(i, this.zero)
   }
 
-  update(peds: Ped[], time: number, groundY: (x: number, z: number) => number): void {
+  /** hidden に入っている人は描かない（近くの人は pedSkinned.ts の骨格つきモデルで描くため）。倒れた跡の染みは描く */
+  update(peds: Ped[], time: number, groundY: (x: number, z: number) => number, hidden: Set<number> = new Set()): void {
     const n = Math.min(peds.length, MAX)
     let pools = 0
     for (let i = 0; i < n; i++) {
       const p = peds[i]
       const L = p.look
+      if (hidden.has(p.id)) {
+        for (const part of Object.keys(this.meshes) as PartName[]) {
+          if (DOUBLE.includes(part)) { this.hide(part, i * 2); this.hide(part, i * 2 + 1) } else this.hide(part, i)
+        }
+        if (p.mode === 'down') {
+          const r = Math.min(0.2 + p.downTime * 0.1, 0.85)
+          this.tmp.compose(this.v.set(p.x + Math.sin(p.fallYaw) * 0.5, groundY(p.x, p.z) + 0.015, p.z + Math.cos(p.fallYaw) * 0.5),
+                           this.q.identity(), this.s.set(r, 1, r * 0.8))
+          this.pools.setMatrixAt(pools++, this.tmp)
+        }
+        continue
+      }
       // --- 体全体: 位置 → 倒れる（倒れる向きの横を軸に回す） → 向き -------------------
       const fy = p.fallYaw
       this.axis.set(Math.cos(fy), 0, -Math.sin(fy))
@@ -328,7 +341,8 @@ export class PedModels {
       this.root.compose(this.v.set(p.x, y, p.z), this.q, this.s.set(L.width, L.height, L.width))
 
       // --- 動きの種類ごとの関節の角度 ---------------------------------------------------
-      const walkingOfficer = p.mode === 'officer' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.25
+      const walkingOfficer = (p.mode === 'officer' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.25) ||
+        (p.mode === 'watch' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.2)
       const running = p.mode === 'flee' || (walkingOfficer && p.officer!.run)
       const moving = p.mode === 'walk' || p.mode === 'cross' || p.mode === 'return' || running || walkingOfficer
       const down = p.mode === 'down' || p.mode === 'stagger'
@@ -386,6 +400,8 @@ export class PedModels {
         let elbow = -(running ? 1.45 : 0.22 + A * 0.25 * Math.max(0, -Math.sin(ps)))
         let armOut = side * 0.09
         if (down) { shoulder = -0.3 - side * 0.3; elbow = -0.4; armOut = side * 1.3 }
+        // 野次馬: 立ち止まっているあいだ、右手でスマホを顔の前に構える
+        if (p.mode === 'watch' && !moving && side < 0) { shoulder = -1.25; elbow = -1.5; armOut = -0.25 }
         if (flying) { shoulder = Math.sin(flail * 1.2 + side * 2) * 1.6; elbow = -0.6; armOut = side * (0.9 + Math.sin(flail) * 0.5) }
         const upperM = torsoM.clone().multiply(this.joint(this.a, side * SHOULDER_X, SHOULDER_Y, 0.0, shoulder, armOut))
         this.tmp.multiplyMatrices(this.root, upperM)
