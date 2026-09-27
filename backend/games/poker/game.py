@@ -15,7 +15,8 @@ from typing import Callable, Protocol
 from .cards import Rng, shuffled_deck
 from .rules import (
     BIG_BLIND, DEFAULT_STACK, RAISE, RAISE_FRACTIONS, Action, State, action_from_index,
-    advance_history, apply_action, legal_mask, new_hand, payoff,
+    advance_history, apply_action, legal_mask, max_raise_to, min_raise_to, new_hand, payoff,
+    translate,
 )
 
 
@@ -32,13 +33,32 @@ class Policy(Protocol):
 
     `hist` はここまでの行動の並び（`advance_history` が作る文字列）。
     CFR で学習した戦略は、この履歴と自分の手札で打ち方を決める。
+
+    枠に無い額を打ちたいもの（その場で解くソルバー）は、番号の代わりに `Action`（額つき）を
+    返してよい。履歴にはいちばん近い枠の番号が入る（人の任意額と同じ扱い。`translate()`）。
     """
 
-    def act(self, state: State, player: int, hist: str) -> int:
+    def act(self, state: State, player: int, hist: str) -> int | Action:
         ...
 
 
-PolicyFn = Callable[[State, int, str], int]
+PolicyFn = Callable[[State, int, str], "int | Action"]
+
+
+def resolve_action(state: State, chosen: "int | Action", fractions: tuple[float, ...],
+                   mask: list[bool]) -> tuple[Action, int]:
+    """方策が返したもの（枠の番号か `Action`）→ (実際の手, 履歴に入れる枠の番号)。"""
+    if isinstance(chosen, Action):
+        if chosen.kind == RAISE:
+            lo, hi = min_raise_to(state), max_raise_to(state)
+            if not lo <= chosen.to <= hi:
+                raise ValueError("レイズ額が範囲外: " + str(chosen.to))
+        index = translate(state, chosen.kind, chosen.to, fractions)
+        return chosen, index
+    index = int(chosen)
+    if not (0 <= index < len(mask)) or not mask[index]:
+        raise ValueError("打てない枠を選んだ: " + str(index))
+    return action_from_index(state, index, fractions), index
 
 
 @dataclass
@@ -76,10 +96,7 @@ def play_hand(
         mask = legal_mask(state, fractions, max_raises, raises)
         if not any(mask):
             raise RuntimeError("打てる手がないのに終局していない")
-        index = policies[p](state, p, hist)
-        if not (0 <= index < len(mask)) or not mask[index]:
-            raise ValueError("打てない枠を選んだ: " + str(index))
-        action = action_from_index(state, index, fractions)
+        action, index = resolve_action(state, policies[p](state, p, hist), fractions, mask)
         steps.append(HandStep(player=p, street=state.street, index=index, action=action))
         if action.kind == RAISE:
             raises += 1

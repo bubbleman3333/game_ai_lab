@@ -115,11 +115,11 @@ def test_反復を増やすと搾取されにくくなる():
     st = _river_state()
     uniform = np.ones(N_COMBOS, dtype=np.float32)
     values = []
-    for iters in (10, 60):
+    for iters in (10, 80):
         sol = solve(st, 1, (uniform, uniform), 0, SolveSettings(iterations=iters))
         values.append(exploitability(sol, (uniform, uniform), st.board))
     assert values[1] < values[0] / 2, values
-    assert values[1] < 0.1 * st.pot, "60 反復でポットの 1 割より小さくなるはず"
+    assert values[1] < 0.12 * st.pot, "80 反復でポットの 1 割ほどより小さくなるはず（枠が 8 つあるので収束はゆっくり）"
 
 
 def test_ナッツは賭けてゴミはチェックが多い():
@@ -150,10 +150,30 @@ def test_相手のレンジが弱いと強気になる():
 
 def test_木は合法手だけで作られ枠の数と合う():
     st = _river_state()
-    root = solver.build_tree(st, 0, SolveSettings()).root
+    settings = SolveSettings()
+    layer = solver.build_tree(st, 0, settings)
+    root = layer.root
     assert root.player == 1
-    assert root.actions == [1, 2, 3, 4], "リバーの先手番はチェック・0.5 ポット・1 ポット・オールイン"
-    assert root.regret.shape == (4, 1, N_COMBOS)
+    space = settings.space()
+    # リバーの先手番: チェックと、最初のベットの倍率とオールイン（ポットが小さいので、
+    # 同じ額になる倍率は 1 つにまとめられる。0.33 ポットと 0.5 ポットがどちらも最低額の 2 になる）
+    want = [1] + [space.index_of(f) for f in settings.bet_fractions] + [space.all_in]
+    assert root.actions[0] == 1 and root.actions[-1] == space.all_in
+    assert set(root.actions) < set(want) and len(root.actions) == len(want) - 1
+    assert root.regret.shape == (len(root.actions), 1, N_COMBOS)
+    assert all(m.to > 0 for m in root.moves[1:]), "実際の手（額つき）も持っている"
+    # 相手のベットに対しては、レイズの倍率だけ
+    bet_node = root.children[1]
+    assert bet_node.actions == [0, 1] + [space.index_of(f) for f in settings.raise_fractions] + [space.all_in]
+
+
+def test_ネットの枠からソルバーの枠への読み替え():
+    space = SolveSettings().space()
+    assert space.from_net(0) == 0 and space.from_net(1) == 1
+    assert space.from_net(4) == space.all_in, "ネットのオールイン → ソルバーのオールイン"
+    assert space.from_net(2) == space.index_of(0.5)
+    assert space.from_net(3) == space.index_of(1.0)
+    assert space.labels()[space.index_of(0.75)] == "ポットの0.75倍"
 
 
 def test_履歴の復元():
@@ -186,6 +206,9 @@ def test_その場で解くプレイヤーは打てない手を選ばずレン�
         result = play_hand(st, (me, opp), config.RAISE_FRACTIONS, config.MAX_RAISES_PER_STREET)
         assert sum(result.payoff) == 0
         assert me.last_probs is not None and abs(sum(me.last_probs) - 1.0) < 1e-6
+        assert len(me.last_labels) == len(me.last_probs)
+        # 打った手は Action（額つき）で、履歴にはネットの枠の番号が入る
+        assert all(0 <= s.index < deep_cfr.N_ACTIONS for s in result.steps)
     assert me.memo is not None
     # 保存して読み直しても同じレンジ
     dumped = me.dump_memo()
@@ -230,7 +253,9 @@ def test_numbaの下の木はnumpyの木と同じ後悔を出す():
     from rl.poker import fastcfr
 
     st = _river_state()
-    layer = solver.build_tree(st, 0, SolveSettings())
+    # 下の木は倍率 (0.5, 1) で組むので、層 0 も同じ枠にそろえて比べる
+    same = SolveSettings(bet_fractions=(0.5, 1.0), raise_fractions=(0.5, 1.0))
+    layer = solver.build_tree(st, 0, same)
     ok = valid_mask(st.board)
     rng = np.random.default_rng(0)
     r0 = (rng.random(N_COMBOS).astype(np.float32) * ok)[None, :]

@@ -13,7 +13,10 @@ GTO Wizard のような「ソルバーで解いた均衡戦略」を、対局中
      「強い手だけで」打たれたときに、広く受けすぎて大きく損をする。均衡戦略を混ぜると
      「相手もそれなりに理にかなった打ち方をする」前提が入り、そこが締まる。
 2. **解く**: 自分の手番で、いまの局面から先を `solver.solve()` で解き、
-   自分の実際の手札の平均戦略から手を引く。
+   自分の実際の手札の平均戦略から手を引く。**手はソルバーの枠**（0.33〜1.5 ポットなど。
+   `solver.BET_FRACTIONS`）で選ぶので、ネットの枠（0.5・1 ポット）より細かい額を打つ。
+   そのため `__call__` は枠の番号ではなく `Action`（額つき）を返す。履歴に入るのは
+   ネットの枠に読み替えた番号（`rules.translate()`。人の任意額と同じ扱い）。
 
 プリフロップは局面が少ない（スタックと履歴で決まる）ので、解いた結果を使い回す。
 フロップ以降は毎回解く（1〜2 秒）。
@@ -33,11 +36,12 @@ from functools import lru_cache
 import numpy as np
 
 from games.poker.rules import (
-    BOARD_COUNT, PREFLOP, FLOP, TURN, RIVER, State, action_from_index, apply_action, legal_mask,
-    new_hand,
+    BOARD_COUNT, PREFLOP, FLOP, TURN, RIVER, Action, State, action_from_index, apply_action,
+    legal_mask, new_hand,
 )
 from . import config
 from .encoding import CARD_END, N_FEATURES, card_features, features
+from games.poker.rules import translate
 from .mccfr import street_raises
 from .model import NumpyNet
 from .solver import (
@@ -56,15 +60,18 @@ PREFLOP_RUNOUTS = 1500
 def default_settings() -> dict[int, SolveSettings]:
     """ストリートごとの解き方（既定 = 深く読む）。
 
-    - ターン: リバーのカード 48 通りそれぞれについてリバーの賭けまで組む（1 手 4 秒ほど）
-    - フロップ: ターンのカードを 12 枚見本で取り、それぞれターンの賭けまで組む（リバーは
-      見本 16 枚のショーダウン。1 手 6 秒ほど）
+    - ターン: リバーのカードを 24 枚見本で取り、それぞれリバーの賭けまで組む（1 手 4 秒ほど）
+    - フロップ: ターンのカードを 8 枚見本で取り、それぞれターンの賭けまで組む（リバーは
+      見本 16 枚のショーダウン。1 手 5 秒ほど）
     - リバー: そのまま解く（1 秒ほど）
+
+    賭け額の枠が 0.33〜1.5 ポットの 5 つ（`solver.BET_FRACTIONS`）になって層 0 の木が広がり、
+    先読みの木が 13 本から 37 本に増えたので、見本の数と反復を少し絞って時間を保っている。
     """
     return {
         PREFLOP: SolveSettings(iterations=150, flop_runouts=PREFLOP_RUNOUTS),
-        FLOP: SolveSettings(iterations=60, flop_runouts=100, flop_turns=12, leaf_rivers=16),
-        TURN: SolveSettings(iterations=60, turn_rivers=48),
+        FLOP: SolveSettings(iterations=45, flop_runouts=100, flop_turns=8, leaf_rivers=16),
+        TURN: SolveSettings(iterations=50, turn_rivers=24),
         RIVER: SolveSettings(iterations=150),
     }
 
@@ -197,7 +204,11 @@ def preflop_solution(net: NumpyNet, stack: int, button: int, hist: str, epsilon:
     for s, p, idx, prefix in steps:
         if p == actor:
             prev = preflop_solution(net, stack, button, prefix, epsilon, settings)
-            r[p] *= prev.range_strategy()[prev.root.actions.index(idx)]
+            own = prev.space.from_net(idx)  # 履歴はネットの枠なので、ソルバーの枠に読み替える
+            if own in prev.root.actions:
+                r[p] *= prev.range_strategy()[prev.root.actions.index(own)]
+            else:
+                r[p] *= model_probs(net, s, p, prefix, epsilon)[:, idx]
         else:
             r[p] *= model_probs(net, s, p, prefix, epsilon)[:, idx]
     sol = solve(final, actor, (r[0], r[1]), street_raises(hist), settings)
@@ -225,7 +236,8 @@ class SearchPlayer:
         self.net_weight = net_weight  # 相手のモデルのうちネットの割合（残りはソルバーの均衡戦略）
         self.settings = settings or default_settings()
         self.memo: dict | None = None
-        self.last_probs: list[float] | None = None
+        self.last_probs: list[float] | None = None  # ソルバーの手の並び（`last_labels` と対）
+        self.last_labels: list[str] | None = None
         self.last_solution: Solution | None = None
 
     # -- レンジの持ち越し（API はリクエストをまたぐので JSON にして保存する） --
@@ -269,16 +281,19 @@ class SearchPlayer:
     # -- 手を選ぶ --
 
     def _equilibrium(self, s: State, idx: int, prefix: str) -> np.ndarray | None:
-        """`s` で `idx` を打つ確率の、ソルバーの均衡戦略（1326 通り）。無ければ None。"""
+        """`s` で `idx`（ネットの枠の番号）を打つ確率の、ソルバーの均衡戦略（1326 通り）。無ければ None。"""
         if s.street == PREFLOP:
             sol = preflop_solution(self.net, s.start_stack, s.button, prefix, self.epsilon,
                                    self.settings[PREFLOP])
-            if idx in sol.root.actions:
-                return sol.range_strategy()[sol.root.actions.index(idx)]
+            own = sol.space.from_net(idx)
+            if own in sol.root.actions:
+                return sol.range_strategy()[sol.root.actions.index(own)]
             return None
         eq = self.memo.get("eq")
-        if eq is not None and eq["prefix"] == prefix and idx in eq["actions"]:
-            return eq["probs"][eq["actions"].index(idx)]
+        if eq is not None and eq["prefix"] == prefix:
+            own = self.settings[s.street].space().from_net(idx)
+            if own in eq["actions"]:
+                return eq["probs"][eq["actions"].index(own)]
         return None
 
     def _advance(self, st: State, player: int, hist: str) -> None:
@@ -299,8 +314,8 @@ class SearchPlayer:
             self.memo["ranges"][p] *= w
         self.memo["n"] = len(steps)
 
-    def __call__(self, st: State, player: int, hist: str) -> int:
-        mask = legal_mask(st, _FRACTIONS, _MAX_RAISES, street_raises(hist))
+    def __call__(self, st: State, player: int, hist: str) -> Action:
+        """手を返す。**枠の番号ではなく `Action`（額つき）**（ソルバーの枠はネットより細かいため）。"""
         self._advance(st, player, hist)
         opp = 1 - player
         ranges = [None, None]
@@ -315,20 +330,26 @@ class SearchPlayer:
                         self.settings[st.street])
         self.last_solution = sol
         mix = sol.strategy(combo_index(st.holes[player]))
-        probs = [mix.get(i, 0.0) if mask[i] else 0.0 for i in range(len(mask))]
+        n = sol.space.n
+        legal = [i in mix for i in range(n)]
+        probs = [mix.get(i, 0.0) for i in range(n)]
         self.last_probs = list(probs)
-        chosen = self._sample(probs, mask)
+        self.last_labels = sol.space.labels()
+        chosen = self._sample(probs, legal)
+        act = sol.action(chosen)
         # 自分のレンジは、自分の平均戦略で更新する（相手から見た「自分の持ちうる手」）
         pos = sol.root.actions.index(chosen)
         self.memo["ranges"][player] *= sol.range_strategy()[pos]
         self.memo["n"] += 1
-        # この手に対する相手の応手（均衡戦略）を覚えておき、次に相手のレンジを更新するときに混ぜる
+        # この手に対する相手の応手（均衡戦略）を覚えておき、次に相手のレンジを更新するときに混ぜる。
+        # 履歴の方はネットの枠に読み替えた番号で進むので、その番号を prefix にする
         child = sol.root.children[pos]
         self.memo["eq"] = None
         if isinstance(child, Decision) and child.player == opp:
-            self.memo["eq"] = {"prefix": hist + str(chosen), "actions": list(child.actions),
+            net_idx = translate(st, act.kind, act.to, _FRACTIONS)
+            self.memo["eq"] = {"prefix": hist + str(net_idx), "actions": list(child.actions),
                                "probs": _avg_sigma(child)[:, 0, :].astype(np.float32)}
-        return chosen
+        return act
 
     def _sample(self, probs: list[float], mask: list[bool]) -> int:
         roll = self.rng.random() * sum(probs)

@@ -15,7 +15,7 @@ from django.db import transaction
 from apps.common.errors import Conflict, DomainError, NotFound
 from apps.monitoring.services import record_event
 from games.poker.cards import Rng, cards_str, hand_value, value_name
-from games.poker.game import deal
+from games.poker.game import deal, resolve_action
 from games.poker.rules import (
     BIG_BLIND, CALL, CHECK, FOLD, RAISE, STREET_NAMES, Action, State, action_from_index,
     advance_history, apply_action, legal_mask, max_raise_to, min_raise_to, payoff,
@@ -166,17 +166,25 @@ def _run_ai(table: PokerTable) -> PokerTable:
             raise DomainError("AI の手番が終わりません（不具合）")
         mask = legal_mask(st, rl_config.RAISE_FRACTIONS, rl_config.MAX_RAISES_PER_STREET,
                           street_raises(hist))
-        index = policy(st, AI, hist)
-        if not (0 <= index < len(mask)) or not mask[index]:
+        try:
+            # その場で解く AI は枠に無い額（0.75 ポットなど）を打ってくる。履歴には一番近い枠が入る
+            action, index = resolve_action(st, policy(st, AI, hist), rl_config.RAISE_FRACTIONS, mask)
+        except ValueError:
             index = next(i for i, ok in enumerate(mask) if ok)
-        action = action_from_index(st, index, rl_config.RAISE_FRACTIONS)
+            action = action_from_index(st, index, rl_config.RAISE_FRACTIONS)
         need = to_call(st, AI)
         line = _log_line(st, AI, action.kind, action.to, need)
         probs = getattr(policy, "last_probs", None)
         if probs is not None:
             # **局が終わるまで画面には出さない**（途中で見せると手札の強さが漏れる）
             line["probs"] = [round(float(v), 4) for v in probs]
-            line["chosen"] = index
+            labels = getattr(policy, "last_labels", None)
+            if labels:
+                line["labels"] = list(labels)  # ソルバーの手の並びはネットの枠と違うので、名前も付ける
+                line["chosen"] = max(range(len(probs)), key=lambda i: probs[i]) if action.kind != RAISE \
+                    else _chosen_label(labels, probs, st, action)
+            else:
+                line["chosen"] = index
         log.append(line)
         nxt = apply_action(st, action)
         hist = advance_history(st, nxt, index, hist)
@@ -191,6 +199,24 @@ def _run_ai(table: PokerTable) -> PokerTable:
     else:
         table.save()
     return table
+
+
+def _chosen_label(labels: list[str], probs: list[float], st: State, action: Action) -> int:
+    """ソルバーの手の並びの中で、実際に打った手（レイズ額）に当たる番号。"""
+    from games.poker.rules import raise_to_for_fraction
+
+    best, diff = 0, None
+    for i, label in enumerate(labels):
+        if label == "オールイン":
+            to = max_raise_to(st, st.to_act)
+        elif label.startswith("ポットの"):
+            to = raise_to_for_fraction(st, float(label[len("ポットの"):-1]))
+        else:
+            continue
+        d = abs(to - action.to)
+        if diff is None or d < diff:
+            best, diff = i, d
+    return best
 
 
 def _log_line(st: State, player: int, kind: int, to: int, need: int) -> dict:

@@ -59,6 +59,8 @@ export interface PokerLogLine {
   text: string
   /** AI がその場面で各手を選ぶ確率。**局が終わるまでサーバーが落とす**（途中で見せると手札が透ける） */
   probs?: number[]
+  /** `probs` の並びの名前（その場で解く AI は枠がネットより細かいので、サーバーが付ける） */
+  labels?: string[]
   /** 実際に選んだ枠の番号 */
   chosen?: number
 }

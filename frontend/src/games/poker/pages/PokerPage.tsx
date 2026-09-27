@@ -36,7 +36,7 @@ const TABLE_KEY = 'poker.table'
 const STACK_CHOICES = [20, 40, 70, 100, 150, 200, 400]
 
 /** AI がその場面で手をどう混ぜていたか（局が終わってから出す） */
-function ActionMix({ probs, chosen }: { probs: number[]; chosen: number }) {
+function ActionMix({ probs, chosen, labels }: { probs: number[]; chosen: number; labels?: string[] }) {
   const shown = probs
     .map((p, i) => ({ p, i }))
     .filter((x) => x.p >= 0.005)
@@ -48,7 +48,7 @@ function ActionMix({ probs, chosen }: { probs: number[]; chosen: number }) {
       {shown.map((x, k) => (
         <span key={x.i} className={x.i === chosen ? 'chosen' : undefined}>
           {k > 0 && ' / '}
-          {ACTION_LABELS[x.i] ?? x.i} {Math.round(x.p * 100)}%
+          {labels?.[x.i] ?? ACTION_LABELS[x.i] ?? x.i} {Math.round(x.p * 100)}%
         </span>
       ))}
       ）
@@ -279,7 +279,7 @@ export function PokerPage() {
                 {table.log.map((l, i) => (
                   <li key={i}>
                     <span className="side-label">{l.street_name}</span> {l.text}
-                    {l.probs && <ActionMix probs={l.probs} chosen={l.chosen ?? -1} />}
+                    {l.probs && <ActionMix probs={l.probs} chosen={l.chosen ?? -1} labels={l.labels} />}
                   </li>
                 ))}
               </ol>

@@ -363,10 +363,12 @@ class FlatTree:
         self.regret = np.zeros(self.regret_size, dtype=np.float32)
 
 
-def build_flat(st: State, raises: int, K: int, max_raises: int) -> FlatTree:
+def build_flat(st: State, raises: int, K: int, max_raises: int,
+               fractions: tuple[float, ...] = _FRACTIONS) -> FlatTree:
     """`st`（ストリートの手番）から、このストリートの賭けの木を平らに組む。
 
     ストリートが終わるところと、降りずに終わるところはショーダウン（ランアウトの葉）。
+    `fractions` は賭け額の倍率（最後にオールインが付く）。
     """
     ntype: list[int] = []
     player: list[int] = []
@@ -387,13 +389,13 @@ def build_flat(st: State, raises: int, K: int, max_raises: int) -> FlatTree:
         return len(ntype) - 1
 
     def rec(s: State, r: int) -> int:
-        mask = legal_mask(s, _FRACTIONS, max_raises, r)
+        mask = legal_mask(s, fractions, max_raises, r)
         node = add(T_DECISION, s.to_act)
         acts = [i for i, ok in enumerate(mask) if ok]
         actions[node] = acts
         n_act[node] = len(acts)
         for a, i in enumerate(acts):
-            nxt = apply_action(s, action_from_index(s, i, _FRACTIONS))
+            nxt = apply_action(s, action_from_index(s, i, fractions))
             stk = float(min(nxt.committed))
             if nxt.finished and nxt.folded >= 0:
                 c = add(T_FOLD, 0, stk, 1 - nxt.folded)

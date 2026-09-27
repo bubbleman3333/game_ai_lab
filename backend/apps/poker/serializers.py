@@ -14,6 +14,7 @@ from games.poker.rules import (
     to_call,
 )
 from rl.poker import config as rl_config
+from rl.poker.solver import BET_FRACTIONS
 from .services import AI, HUMAN, state_from_json
 
 
@@ -109,7 +110,7 @@ def _visible_log(log: list, finished: bool) -> list[dict]:
     （途中で見せると、AI の手札の強さが透けてしまう）。"""
     if finished:
         return list(log)
-    return [{k: v for k, v in line.items() if k not in ("probs", "chosen")} for line in log]
+    return [{k: v for k, v in line.items() if k not in ("probs", "chosen", "labels")} for line in log]
 
 
 def _last_actions(log: list, street: int, finished: bool) -> list[str | None]:
@@ -130,10 +131,11 @@ def _last_actions(log: list, street: int, finished: bool) -> list[str | None]:
 
 
 def _presets(st) -> list[dict]:
-    """ワンタッチで押せるレイズ額（AI が学習している枠と同じ倍率 + オールイン）。"""
+    """ワンタッチで押せるレイズ額（ソルバーが使う倍率 + オールイン）。"""
     out: list[dict] = []
     seen: set[int] = set()
-    for frac in rl_config.RAISE_FRACTIONS:
+    fracs = sorted(set(BET_FRACTIONS) | set(rl_config.RAISE_FRACTIONS))
+    for frac in fracs:
         amount = raise_to_for_fraction(st, frac)
         if amount in seen:
             continue

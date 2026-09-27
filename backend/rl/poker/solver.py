@@ -30,7 +30,8 @@ from functools import lru_cache
 import numpy as np
 
 from games.poker.rules import (
-    IDX_RAISE_BASE, RIVER, State, action_from_index, apply_action, legal_mask,
+    IDX_CHECK_CALL, IDX_FOLD, IDX_RAISE_BASE, RIVER, Action, State, action_from_index,
+    apply_action, legal_mask, to_call,
 )
 from . import config
 from . import fastcfr
@@ -55,6 +56,71 @@ _B = COMBO_CARDS[:, 1]
 
 _FRACTIONS = config.RAISE_FRACTIONS
 _MAX_RAISES = config.MAX_RAISES_PER_STREET
+
+# ソルバーの賭け額の枠。**ネット（学習）の枠とは別**に持てる。ソルバーは局面ごとに木を組むので、
+# 枠を足しても学習し直しは要らない。ネットの枠（0.5・1 ポット）は必ず含めておくと、
+# 相手の行動（履歴はネットの枠で来る）をそのまま自分の枠に読み替えられる
+BET_FRACTIONS = (0.33, 0.5, 0.75, 1.0, 1.5)  # そのストリートで最初に賭けるとき
+RAISE_FRACTIONS_SOLVER = (1.0,)  # 相手の賭けに上乗せするとき（枠を絞って木を小さく保つ）
+SUB_FRACTIONS = (0.5, 1.0)  # 先読み（次のストリートの木）の中
+
+
+class ActionSpace:
+    """ソルバーの手の並び: 0 = 降りる、1 = チェック/コール、2.. = 倍率、最後 = オールイン。
+
+    局面ごとに使える倍率は変わる（ベットかレイズか）が、番号はこの並びで固定する。
+    """
+
+    def __init__(self, fractions: tuple[float, ...]):
+        self.fractions = tuple(sorted(set(fractions)))
+        self.n = IDX_RAISE_BASE + len(self.fractions) + 1
+        self.all_in = self.n - 1
+
+    def index_of(self, frac: float) -> int:
+        return IDX_RAISE_BASE + self.fractions.index(frac)
+
+    def labels(self) -> list[str]:
+        return ["降りる", "チェック/コール"] + [f"ポットの{f:g}倍" for f in self.fractions] + ["オールイン"]
+
+    def from_net(self, net_index: int) -> int:
+        """ネットの枠の番号（履歴に入っている）→ この並びの番号。"""
+        if net_index in (IDX_FOLD, IDX_CHECK_CALL):
+            return net_index
+        if net_index == len(_FRACTIONS) + IDX_RAISE_BASE:  # ネットのオールイン
+            return self.all_in
+        frac = _FRACTIONS[net_index - IDX_RAISE_BASE]
+        if frac in self.fractions:
+            return self.index_of(frac)
+        return min(range(len(self.fractions)), key=lambda i: abs(self.fractions[i] - frac)) + IDX_RAISE_BASE
+
+    def action(self, st: State, index: int) -> Action:
+        """番号 → 実際の手（`to` つき）。"""
+        if index in (IDX_FOLD, IDX_CHECK_CALL) or index == self.all_in:
+            local = index if index != self.all_in else len(self.fractions) + IDX_RAISE_BASE
+            return action_from_index(st, local, self.fractions)
+        return action_from_index(st, index, self.fractions)
+
+
+def node_actions(st: State, raises: int, max_raises: int, space: ActionSpace,
+                 bet: tuple[float, ...], raise_: tuple[float, ...]) -> list[tuple[int, Action]]:
+    """この局面で打てる手（ソルバーの番号と実際の手）。まだ誰も賭けていなければ `bet` の倍率、
+    相手の賭けがあれば `raise_` の倍率を使う。同じ額になる枠は 1 つだけ残す。"""
+    fracs = bet if to_call(st) == 0 else raise_
+    fracs = tuple(f for f in fracs if f in space.fractions)
+    mask = legal_mask(st, fracs, max_raises, raises)
+    out: list[tuple[int, Action]] = []
+    n_local = len(mask)
+    for i, ok in enumerate(mask):
+        if not ok:
+            continue
+        act = action_from_index(st, i, fracs)
+        if i == IDX_FOLD or i == IDX_CHECK_CALL:
+            out.append((i, act))
+        elif i == n_local - 1:
+            out.append((space.all_in, act))
+        else:
+            out.append((space.index_of(fracs[i - IDX_RAISE_BASE]), act))
+    return out
 
 
 def combo_index(hole: tuple[int, int]) -> int:
@@ -397,8 +463,9 @@ class Chance:
 @dataclass
 class Decision:
     player: int
-    actions: list[int]
+    actions: list[int]  # ソルバーの手の番号（`ActionSpace`）
     children: list = field(default_factory=list)
+    moves: list = field(default_factory=list)  # `actions` と同じ並びの実際の手（`Action`）
     regret: np.ndarray | None = None
     ssum: np.ndarray | None = None
 
@@ -416,6 +483,13 @@ class SolveSettings:
     sub_max_raises: int = 1
     # フロップの先読みで、ターンの木の葉（リバーはそのままショーダウン）で平均するリバーの見本の数
     leaf_rivers: int = 16
+    # 賭け額の枠（ネットの枠とは別）。最初のベット・レイズ・先読みの中で使う倍率
+    bet_fractions: tuple[float, ...] = BET_FRACTIONS
+    raise_fractions: tuple[float, ...] = RAISE_FRACTIONS_SOLVER
+    sub_fractions: tuple[float, ...] = SUB_FRACTIONS
+
+    def space(self) -> ActionSpace:
+        return ActionSpace(self.bet_fractions + self.raise_fractions + self.sub_fractions)
     # 後悔の割引（DCFR, Brown & Sandholm 2019）。CFR+ より少ない反復で均衡に近づく。
     # alpha: 正の後悔を t^alpha/(t^alpha+1) 倍、beta: 負の後悔を t^beta/(t^beta+1) 倍、
     # gamma: 平均戦略を (t/(t+1))^gamma 倍。discount=False なら CFR+（負の後悔を 0 で切る）
@@ -443,6 +517,7 @@ class Layer0:
     order: list  # 前順（親が先）のノードの並び
     chances: list  # Chance ノード（`MultiTree` の木の番号の順）
     multi: object | None  # fastcfr.MultiTree
+    space: ActionSpace
 
 
 def build_tree(st: State, raises: int, settings: SolveSettings) -> Layer0:
@@ -475,13 +550,15 @@ def build_tree(st: State, raises: int, settings: SolveSettings) -> Layer0:
     order: list = []
     chances: list = []
     flats: list = []
+    space = settings.space()
 
     def rec(s: State, r: int) -> Decision:
-        mask = legal_mask(s, _FRACTIONS, settings.max_raises, r)
-        node = Decision(player=s.to_act, actions=[i for i, ok in enumerate(mask) if ok])
+        moves = node_actions(s, r, settings.max_raises, space, settings.bet_fractions,
+                             settings.raise_fractions)
+        node = Decision(player=s.to_act, actions=[i for i, _ in moves], moves=[a for _, a in moves])
         order.append(node)
-        for i in node.actions:
-            child = apply_action(s, action_from_index(s, i, _FRACTIONS))
+        for i, act in moves:
+            child = apply_action(s, act)
             stake = float(min(child.committed))
             if child.finished:
                 if child.folded >= 0:
@@ -492,7 +569,8 @@ def build_tree(st: State, raises: int, settings: SolveSettings) -> Layer0:
                 order.append(leaf)
             elif child.street != s.street:
                 if next_leaf is not None:
-                    flats.append(fastcfr.build_flat(child, 0, len(cards), settings.sub_max_raises))
+                    flats.append(fastcfr.build_flat(child, 0, len(cards), settings.sub_max_raises,
+                                                    settings.sub_fractions))
                     ch = Chance(len(chances), valid, norm)
                     chances.append(ch)
                     node.children.append(ch)
@@ -509,7 +587,7 @@ def build_tree(st: State, raises: int, settings: SolveSettings) -> Layer0:
 
     root = rec(st, raises)
     multi = fastcfr.MultiTree(flats, next_leaf) if flats else None
-    return Layer0(root, order, chances, multi)
+    return Layer0(root, order, chances, multi, space)
 
 
 def _sigma(regret: np.ndarray) -> np.ndarray:
@@ -602,9 +680,14 @@ def _decisions(node, out: list) -> list:
 class Solution:
     root: Decision
     hero: int
+    space: ActionSpace
+
+    def action(self, index: int) -> Action:
+        """根の手の番号 → 実際の手。"""
+        return self.root.moves[self.root.actions.index(index)]
 
     def strategy(self, combo: int) -> dict[int, float]:
-        """根で、指定のコンボが各手（枠の番号）を選ぶ確率（平均戦略）。"""
+        """根で、指定のコンボが各手（ソルバーの番号）を選ぶ確率（平均戦略）。"""
         s = self.root.ssum[:, 0, combo]
         tot = float(s.sum())
         if tot <= 0.0:
@@ -648,7 +731,7 @@ def solve(st: State, hero: int, ranges: tuple[np.ndarray, np.ndarray], raises: i
                 node.ssum *= avg
             if layer.multi is not None:
                 layer.multi.discount(pos, neg)
-    return Solution(layer.root, hero)
+    return Solution(layer.root, hero, layer.space)
 
 
 # ---- 収束の確かめ方（テストと調整用） ----
