@@ -114,6 +114,18 @@
         "8792"
       ],
       "port": 8792
+    },
+    {
+      "name": "mobile-app",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "../mobile_app/node_modules/expo/bin/cli",
+        "start",
+        "../mobile_app",
+        "--port",
+        "8081"
+      ],
+      "port": 8081
     }
   ]
 }
