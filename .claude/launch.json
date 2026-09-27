@@ -101,6 +101,12 @@
       "port": 8765
     },
     {
+      "name": "tiny-chat",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8010", "-d", "../tiny_chat/web"],
+      "port": 8010
+    },
+    {
       "name": "groundwork",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
