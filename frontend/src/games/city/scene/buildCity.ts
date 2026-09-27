@@ -189,10 +189,56 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
 
   // --- 建物 ----------------------------------------------------------------------------
   const facades = Object.fromEntries(STYLES.map((s) => [s, TX.facade(s)])) as Record<Style, TX.FacadeTextures>
-  const shop = TX.shopfront()
-  for (const f of [...Object.values(facades), shop]) { keep(f.map); keep(f.rough); keep(f.emissive) }
+  // 店構えは 4 種類（同じ並びが続かないように、建物ごとに選ぶ）
+  const shops = [0, 1, 2, 3].map((k) => TX.shopfront(k))
+  const signs = TX.signAtlas()
+  const vend = TX.vendingFront()
+  for (const f of [...Object.values(facades), ...shops, signs, vend]) { keep(f.map); keep(f.rough); keep(f.emissive) }
+  /** 壁から道路側へ突き出た縦長の看板（1 棟に 1〜3 枚） */
+  const addSigns = (B: { x0: number; z0: number; x1: number; z1: number; h: number }, r: () => number, base: number) => {
+    if (B.h < 10) return
+    const faces: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    const n = 1 + Math.floor(r() * 3)
+    for (let k = 0; k < n; k++) {
+      const [nx, nz] = faces[Math.floor(r() * 4)]
+      const along = r()
+      const px = nx === 1 ? B.x1 : nx === -1 ? B.x0 : B.x0 + (B.x1 - B.x0) * (0.15 + along * 0.7)
+      const pz = nz === 1 ? B.z1 : nz === -1 ? B.z0 : B.z0 + (B.z1 - B.z0) * (0.15 + along * 0.7)
+      const y0 = base + SHOP_H + 0.6 + r() * 2, y1 = y0 + 3.2 + r() * 2
+      const cell = Math.floor(r() * 16)
+      const u0 = (cell % 4) / 4, u1 = u0 + 0.25
+      const v1 = 1 - Math.floor(cell / 4) / 4, v0 = v1 - 0.25
+      const out = 1.1
+      const ax = px + nx * out, az = pz + nz * out
+      // 表と裏（どちらから見ても読める）。t は看板の面の向き
+      const tx = nz, tz = -nx
+      signB.quad([ax, y0, az], [px, y0, pz], [px, y1, pz], [ax, y1, az], [tx, 0, tz], [u0, v0, u1, v0, u1, v1, u0, v1])
+      signB.quad([px, y0, pz], [ax, y0, az], [ax, y1, az], [px, y1, pz], [-tx, 0, -tz], [u0, v0, u1, v0, u1, v1, u0, v1])
+    }
+  }
+
+  /** 店先の自販機 */
+  const addVending = (B: { x0: number; z0: number; x1: number; z1: number }, r: () => number, base: number) => {
+    const faces: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    const [nx, nz] = faces[Math.floor(r() * 4)]
+    const t = 0.2 + r() * 0.6
+    const cx = nx === 1 ? B.x1 + 0.45 : nx === -1 ? B.x0 - 0.45 : B.x0 + (B.x1 - B.x0) * t
+    const cz = nz === 1 ? B.z1 + 0.45 : nz === -1 ? B.z0 - 0.45 : B.z0 + (B.z1 - B.z0) * t
+    const hw = 0.5, hd = 0.4, h = 1.85
+    const x0 = cx - (nx ? hd : hw), x1 = cx + (nx ? hd : hw), z0 = cz - (nz ? hd : hw), z1 = cz + (nz ? hd : hw)
+    // 側面と天板は本体の色（絵の端の部分）、正面だけ見本の並んだ絵
+    vendB.walls(x0, z0, x1, z1, base, base + h, 1000, 1000, 0.02, 0.95)
+    vendB.top(x0, z0, x1, z1, base + h, 1000)
+    const fx = cx + nx * (hd + 0.005), fz = cz + nz * (hd + 0.005)
+    const tx = nz, tz = -nx // 正面の横方向（右から左）
+    vendB.quad([fx - tx * hw, base, fz - tz * hw], [fx + tx * hw, base, fz + tz * hw], [fx + tx * hw, base + h, fz + tz * hw],
+               [fx - tx * hw, base + h, fz - tz * hw], [nx, 0, nz], [0, 0, 1, 0, 1, 1, 0, 1])
+  }
+
   const wallBuilders = Object.fromEntries(STYLES.map((s) => [s, new GeoBuilder()])) as Record<Style, GeoBuilder>
-  const shopB = new GeoBuilder()
+  const shopBs = shops.map(() => new GeoBuilder())
+  const signB = new GeoBuilder()
+  const vendB = new GeoBuilder()
   const roofB = new GeoBuilder()
   const tileB = new GeoBuilder()
   const ledgeB = new GeoBuilder()
@@ -207,7 +253,10 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     const top = base + B.h
     wallBuilders[B.style].walls(B.x0, B.z0, B.x1, B.z1, y0, top, su, sv, u0, v0 - y0 / sv)
     if (B.shop) {
-      shopB.walls(B.x0, B.z0, B.x1, B.z1, base, y0, TX.SHOP_WIDTH, SHOP_H, Math.floor(brng() * 8) / 8, -base / SHOP_H)
+      shopBs[Math.floor(brng() * shopBs.length)].walls(B.x0, B.z0, B.x1, B.z1, base, y0, TX.SHOP_WIDTH, SHOP_H,
+                                                       Math.floor(brng() * 8) / 8, -base / SHOP_H)
+      addSigns(B, brng, base)
+      if (brng() < 0.45) addVending(B, brng, base)
       // 1 階と 2 階の境目の庇
       ledgeB.box(B.x0 - 0.5, y0 - 0.25, B.z0 - 0.5, B.x1 + 0.5, y0 + 0.05, B.z1 + 0.5, 2)
     }
@@ -273,13 +322,27 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     mesh.receiveShadow = true
     group.add(mesh)
   }
-  const shopMat = keep(new THREE.MeshStandardMaterial({
-    map: shop.map, roughnessMap: shop.rough, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.15,
-    roughness: 1, metalness: 0.1,
+  const shopMats = shops.map((shop, k) => {
+    const mat = keep(new THREE.MeshStandardMaterial({
+      map: shop.map, roughnessMap: shop.rough, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.15,
+      roughness: 1, metalness: 0.1,
+    }))
+    const mesh = new THREE.Mesh(keep(shopBs[k].build()), mat)
+    mesh.receiveShadow = true
+    group.add(mesh)
+    return mat
+  })
+  const glowMat = (t: TX.FacadeTextures) => keep(new THREE.MeshStandardMaterial({
+    map: t.map, emissiveMap: t.emissive, emissive: 0xffffff, emissiveIntensity: 0.3, roughness: 0.4, side: THREE.DoubleSide,
   }))
-  const shopMesh = new THREE.Mesh(keep(shopB.build()), shopMat)
-  shopMesh.receiveShadow = true
-  group.add(shopMesh)
+  const signMat = glowMat(signs)
+  const vendMat = glowMat(vend)
+  for (const [g, m] of [[signB, signMat], [vendB, vendMat]] as const) {
+    if (g.empty) continue
+    const mesh = new THREE.Mesh(keep(g.build()), m)
+    mesh.castShadow = true
+    group.add(mesh)
+  }
   const gravel = keep(TX.gravelRoof())
   const roofMat = keep(new THREE.MeshStandardMaterial({ map: gravel, roughness: 0.95, color: theme.snow ? 0xf4f7fa : 0xffffff }))
   const roofMesh = new THREE.Mesh(keep(roofB.build()), roofMat)
@@ -418,7 +481,9 @@ export function buildCity(map: CityMap, theme: CityTheme): CityModel {
     setNight(n: number) {
       night = n
       for (const m of wallMats) m.emissiveIntensity = n * 1.25
-      shopMat.emissiveIntensity = 0.12 + n * 1.3
+      for (const m of shopMats) m.emissiveIntensity = 0.12 + n * 1.3
+      signMat.emissiveIntensity = 0.25 + n * 1.8
+      vendMat.emissiveIntensity = 0.5 + n * 1.2
       lampHeadMat.emissiveIntensity = n * 3.2
       poolMat.opacity = n * 0.42
     },

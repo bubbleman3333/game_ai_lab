@@ -62,6 +62,14 @@ export class CityScene {
   private city: CityModel
   private scenery: Scenery
   private heli: HeliModel | null = null
+  /** 壊した店の跡（ガラスの割れた店内の絵・散らばった商品） */
+  private smashedShown = 0
+  private smashTex = TX.smashedShop()
+  private smashMat = new THREE.MeshStandardMaterial({ map: this.smashTex, transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -4 })
+  private smashGeo = new THREE.PlaneGeometry(3.8, 3.4)
+  private goodsGeo = new THREE.BoxGeometry(0.35, 0.25, 0.3)
+  private goodsMat = new THREE.MeshStandardMaterial({ roughness: 0.6 })
+  private smashGroup = new THREE.Group()
   private theme: CityTheme
   private cars = new Map<number, CarView>()
   private peds = new PedModels()
@@ -141,7 +149,7 @@ export class CityScene {
 
     this.city = buildCity(game.map, this.theme)
     this.scenery = buildScenery(game.config)
-    this.scene.add(this.city.group, this.scenery.group)
+    this.scene.add(this.city.group, this.scenery.group, this.smashGroup)
     this.effects = new Effects(this.theme.weather)
     this.scene.add(this.peds.group, this.effects.group, this.markers)
     this.glowTex = TX.softDot(128, 1.3)
@@ -351,6 +359,16 @@ export class CityScene {
         case 'pedHit':
           if (e.player) this.shake = Math.min(1, this.shake + 0.15)
           break
+        case 'shopSmash': {
+          // ショーウィンドウが砕けて、ガラス片・商品・ほこりが道へ飛び出す
+          const d = Math.hypot(e.x - me.x, e.z - me.z)
+          this.effects.glass(e.x + e.nx * 0.3, 1.6, e.z + e.nz * 0.3, 220, e.nx * 6, e.nz * 6)
+          this.effects.debris(e.x, 1.2, e.z, 40)
+          for (let k = 0; k < 10; k++) this.effects.tireSmoke(e.x + e.nx * Math.random() * 3, e.z + e.nz * Math.random() * 3, 1, true)
+          if (e.player) this.shake = Math.min(1.5, this.shake + 0.5 + e.speed / 40)
+          else this.shake = Math.min(1, this.shake + Math.max(0, 0.4 - d / 100))
+          break
+        }
         case 'splash':
           this.effects.splash(e.x, e.z)
           if (e.player) this.shake = Math.min(1.5, this.shake + 0.8)
@@ -520,6 +538,8 @@ export class CityScene {
       L.position.set(cop.body.x + (i ? -0.4 : 0.4), 2.2, cop.body.z)
     }
 
+    this.updateSmashed()
+
     // 景色（観覧車・灯台・船・雲）
     this.scenery.update(dt, this.time, n, this.sun.color)
     this.updateHeli(dt, n)
@@ -530,6 +550,31 @@ export class CityScene {
 
     if (this.composer) this.composer.render(dt)
     else this.renderer.render(this.scene, this.camera)
+  }
+
+  /** 新しく壊した店に、壊れた跡（割れたガラスの向こうの荒れた店内・道に散らばった商品）を置く */
+  private updateSmashed(): void {
+    const list = this.game.smashed
+    while (this.smashedShown < list.length) {
+      const sm = list[this.smashedShown++]
+      const plane = new THREE.Mesh(this.smashGeo, this.smashMat)
+      plane.position.set(sm.x + sm.nx * 0.03, CURB_HEIGHT + 1.75, sm.z + sm.nz * 0.03)
+      plane.rotation.y = Math.atan2(sm.nx, sm.nz)
+      this.smashGroup.add(plane)
+      const goods = new THREE.InstancedMesh(this.goodsGeo, this.goodsMat, 26)
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color()
+      for (let k = 0; k < 26; k++) {
+        const out = Math.random() * 4.5, side = (Math.random() - 0.5) * 5
+        const x = sm.x + sm.nx * out + sm.nz * side, z = sm.z + sm.nz * out - sm.nx * side
+        q.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3))
+        const sc = 0.5 + Math.random() * 1.2
+        m.compose(new THREE.Vector3(x, CURB_HEIGHT + 0.12 * sc, z), q, new THREE.Vector3(sc, sc, sc))
+        goods.setMatrixAt(k, m)
+        goods.setColorAt(k, c.setHex([0xc83030, 0xe0c040, 0x3070c0, 0x40a050, 0xe8e8e8, 0x8a5a30][k % 6]))
+      }
+      goods.castShadow = true
+      this.smashGroup.add(goods)
+    }
   }
 
   /** 警察のヘリ: 位置・傾き・ローター・サーチライト */
@@ -565,6 +610,7 @@ export class CityScene {
 
   dispose(): void {
     this.heli?.dispose()
+    this.smashTex.dispose(); this.smashMat.dispose(); this.smashGeo.dispose(); this.goodsGeo.dispose(); this.goodsMat.dispose()
     this.scenery.dispose()
     for (const view of this.cars.values()) view.model.dispose()
     this.city.dispose()

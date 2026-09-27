@@ -621,6 +621,20 @@ export class CityAudio {
     this.burst(this.brown, this.bus, { gain: 0.4, dur: 0.12, type: 'lowpass', freq: 500, delay: 0.5 })
   }
 
+  /** 店に突っ込んだ: 大きなガラスが砕け、棚が倒れ、商品が散らばる */
+  shopSmash(x: number, z: number, speed: number): void {
+    if (!this.ctx) return
+    const k = clamp(speed / 20, 0.5, 1)
+    this.crash(x, z, k, true)
+    const p = this.panner(x, 1.5, z, 10)
+    this.glass(p, 1.3)
+    // 棚が倒れる・商品が転がる
+    for (let i = 0; i < 25; i++) {
+      this.burst(i % 3 ? this.white : this.brown, p, { gain: rnd(0.05, 0.2), dur: rnd(0.04, 0.15), freq: rnd(300, 3000), q: rnd(2, 10), delay: rnd(0.1, 1.6) })
+    }
+    this.burst(this.brown, p, { gain: 0.6, dur: 0.4, type: 'lowpass', freq: 250, delay: 0.3 })
+  }
+
   /** 海に落ちた: ザブンという大きな水の音と、泡の音 */
   splash(x: number, z: number): void {
     if (!this.ctx) return
@@ -723,6 +737,7 @@ export class CityAudio {
         case 'crash': this.crash(e.x, e.z, clamp(e.impact / 16, 0.12, 1), e.impact > 11); break
         case 'door': this.door(e.x, e.z); break
         case 'splash': this.splash(e.x, e.z); break
+        case 'shopSmash': this.shopSmash(e.x, e.z, e.speed); break
         case 'shot': this.shot(e.fx, e.fy, e.fz, e.tx, e.tz, e.hit); break
         case 'pedHit': this.pedHit(e.x, e.z, e.speed); break
         case 'propBreak': this.clang(e.x, e.z); break

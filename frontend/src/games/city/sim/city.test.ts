@@ -181,3 +181,18 @@ describe('海とヘリ', () => {
     expect(shots).toBeGreaterThan(0)
   })
 })
+
+describe('店を壊す', () => {
+  it('店に突っ込むとショーウィンドウを突き破って、壊した跡が残る', () => {
+    const g = new Game()
+    const B = g.map.buildings.find((b) => b.shop && b.x1 - b.x0 > 12)!
+    const b = g.player.body
+    b.x = B.x0 - 10; b.z = (B.z0 + B.z1) / 2; b.yaw = Math.PI / 2; b.vx = 15; b.vz = 0
+    let smashed = false
+    for (let k = 0; k < 60 * 2; k++) for (const e of g.update(1 / 60, { ...NONE, throttle: 1 })) if (e.kind === 'shopSmash') smashed = true
+    expect(smashed).toBe(true)
+    expect(g.smashed.length).toBeGreaterThan(0)
+    expect(b.x + 2.2).toBeGreaterThan(B.x0 + 1) // 車の鼻先がガラスの奥までめり込んでいる
+    expect(b.x).toBeLessThan(B.x0 + 1.6 + 2.5)
+  })
+})

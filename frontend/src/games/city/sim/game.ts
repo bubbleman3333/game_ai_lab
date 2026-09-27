@@ -84,6 +84,8 @@ export type GameEvent =
   | { kind: 'questioning'; phase: 'start' | 'released' | 'fled' | 'found' }
   /** 車のドアの開け閉め（警官の乗り降り） */
   | { kind: 'door'; x: number; z: number }
+  /** 店のショーウィンドウを突き破った（nx, nz は壁の外向き） */
+  | { kind: 'shopSmash'; x: number; z: number; nx: number; nz: number; speed: number; player: boolean }
   /** 車が海に落ちた */
   | { kind: 'splash'; x: number; z: number; player: boolean }
   /** ヘリからの銃撃 */
@@ -170,6 +172,8 @@ export class Game {
   deathReason: 'wreck' | 'water' = 'wreck'
   /** 警察のヘリ（★3 以上で飛んでくる） */
   heli: Heli | null = null
+  /** 壊した店の場所（壁の上の点と外向き）。見た目（scene）がここに壊れた跡を置く。街にいるあいだ残る */
+  readonly smashed: { x: number; z: number; nx: number; nz: number }[] = []
   private stateTimer = 0
   readonly stats: Stats = { pedsHit: 0, carsWrecked: 0, copsWrecked: 0, propsBroken: 0, maxStars: 0, missions: 0 }
   private nextId = 1
@@ -450,6 +454,7 @@ export class Game {
       const hit = collideWorld(v.body, v.spec, this.map, this.broken)
       if (hit) {
         const isMe = v === this.player
+        if (hit.shop !== undefined && hit.shop >= 0) this.smashShop(v, hit.shop, hit.x, hit.z)
         if (hit.brokeProp >= 0) {
           this.brokenYaw[hit.brokeProp] = Math.atan2(v.body.vx, v.body.vz)
           this.events.push({ kind: 'propBreak', x: hit.x, z: hit.z, prop: hit.brokeProp, player: isMe })
@@ -564,6 +569,29 @@ export class Game {
       else if (sp > 8 && d < 4.5 && ahead > 0) this.peds.scare(p, b.x, b.z)
     }
     void dt
+  }
+
+  /** 店に突っ込んだ: 近くでまだ壊していなければ、ショーウィンドウを砕く */
+  private smashShop(v: Vehicle, bi: number, x: number, z: number): void {
+    const B = this.map.buildings[bi]
+    // いちばん近い壁の面へ寄せる
+    const d = [x - B.x0, B.x1 - x, z - B.z0, B.z1 - z]
+    const k = d.indexOf(Math.min(...d))
+    const [nx, nz] = [[-1, 0], [1, 0], [0, -1], [0, 1]][k]
+    const wx = k === 0 ? B.x0 : k === 1 ? B.x1 : x
+    const wz = k === 2 ? B.z0 : k === 3 ? B.z1 : z
+    if (this.smashed.some((s) => Math.hypot(s.x - wx, s.z - wz) < 3.2)) return
+    const sp = speedOf(v.body)
+    this.smashed.push({ x: wx, z: wz, nx, nz })
+    const isMe = v === this.player
+    this.events.push({ kind: 'shopSmash', x: wx, z: wz, nx, nz, speed: sp, player: isMe })
+    // 店の中は物が多いので、突っ込むとぐっと減速する
+    v.body.vx *= 0.6
+    v.body.vz *= 0.6
+    this.damage(v, 6 + sp)
+    this.dent(v, v.body.x + Math.sin(v.body.yaw) * 2, v.body.z + Math.cos(v.body.yaw) * 2, 6 + sp)
+    this.scareAround(wx, wz, 25)
+    if (isMe) { this.addScore(80, '店を破壊'); this.addHeat(this.policeWatching() ? 45 : 20) }
   }
 
   /** ぶつかった場所（世界座標）を車のローカル座標にして、へこみとして覚える */

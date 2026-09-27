@@ -229,7 +229,12 @@ export interface WorldHit {
   z: number
   /** 倒した小物の番号（倒していなければ −1） */
   brokeProp: number
+  /** 店のショーウィンドウに突っ込んだ（その建物の番号。突っ込んでいなければ −1） */
+  shop?: number
 }
+
+/** 店の 1 階は、ショーウィンドウの奥（この深さ）まで車がめり込める */
+export const SHOP_DEPTH = 1.6
 
 const cross = (ax: number, az: number, bx: number, bz: number) => ax * bz - az * bx
 
@@ -267,8 +272,22 @@ export function collideWorld(b: Body, s: VehicleSpec, map: CityMap, broken: Uint
   const rad = s.width / 2
   map.near(b.x, b.z, s.length / 2 + 2, tmpB, tmpP)
   let hit: WorldHit | null = null
-  const boxes = tmpB.map((i) => map.buildings[i] as { x0: number; z0: number; x1: number; z1: number })
+  // 店のある建物は、当たり判定の箱を SHOP_DEPTH だけ内側に縮める（ガラスを突き破って店の中へめり込める）
+  const boxes = tmpB.map((i) => {
+    const B = map.buildings[i]
+    return B.shop ? { x0: B.x0 + SHOP_DEPTH, z0: B.z0 + SHOP_DEPTH, x1: B.x1 - SHOP_DEPTH, z1: B.z1 - SHOP_DEPTH } : B
+  })
   const nBuildings = boxes.length
+  // 店の外側の箱に入ったら「店に突っ込んだ」
+  let shopHit: { b: number; x: number; z: number } | null = null
+  for (const i of tmpB) {
+    const B = map.buildings[i]
+    if (!B.shop) continue
+    const fx = b.x + Math.sin(b.yaw) * (s.length / 2), fz = b.z + Math.cos(b.yaw) * (s.length / 2)
+    for (const [px, pz] of [[fx, fz], [b.x, b.z]]) {
+      if (px > B.x0 && px < B.x1 && pz > B.z0 && pz < B.z1) { shopHit = { b: i, x: px, z: pz }; break }
+    }
+  }
   for (const w of map.walls) {
     if (b.x > w.x0 - 6 && b.x < w.x1 + 6 && b.z > w.z0 - 6 && b.z < w.z1 + 6) boxes.push(w)
   }
@@ -324,6 +343,9 @@ export function collideWorld(b: Body, s: VehicleSpec, map: CityMap, broken: Uint
         if (imp > 0 && (!hit || imp > hit.impact)) hit = { impact: imp, x: p.x, z: p.z, brokeProp: -1 }
       }
     }
+  }
+  if (shopHit && speedOf(b) > 1.5) {
+    hit = { impact: Math.max(hit?.impact ?? 0, 0), x: shopHit.x, z: shopHit.z, brokeProp: -1, shop: shopHit.b }
   }
   // 縁石: 歩道に乗ると車体が少し上がる（見た目だけ）
   const surf = map.surface(b.x, b.z)

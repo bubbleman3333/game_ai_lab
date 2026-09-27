@@ -346,15 +346,17 @@ export function facade(style: Style): FacadeTextures {
 
 // --- 1 階の店 --------------------------------------------------------------------------
 
-const SHOP_NAMES = ['カフェ', 'ラーメン', '薬局', 'BAR', '書店', 'コンビニ', '花屋', '寿司', 'BAKERY', '服', '居酒屋',
+const SHOP_NAMES = ['焼肉', 'うどん', 'そば', 'スナック', 'パチンコ', 'カラオケ', '古着', '時計', '歯科', '美容室', '整骨院',
+  '中華', 'カレー', 'たこ焼', '雑貨', '家電', '花', 'ケーキ', 'BOOKS', 'CAFE', 'SHOES', 'PHARMACY', '麻雀', '100円',
+  'カフェ', 'ラーメン', '薬局', 'BAR', '書店', 'コンビニ', '花屋', '寿司', 'BAKERY', '服', '居酒屋',
   'PIZZA', '不動産', '眼鏡', 'ゲーム', 'CD', '銀行', 'ATM', '牛丼', 'GYM', '靴', '質屋', '喫茶', 'HOTEL']
 const SIGN_COLORS = ['#e8413c', '#2e7fd9', '#1fa05a', '#f0a020', '#b23ad1', '#e85a9a', '#22b5c4', '#fafafa']
 
 /** 店が並んだ 1 階（幅 32m・高さ 4.5m ぶん。8 軒） */
 export const SHOP_WIDTH = 32
 export const SHOP_HEIGHT = 4.5
-export function shopfront(): FacadeTextures {
-  const rng = makeRng(77)
+export function shopfront(variant = 0): FacadeTextures {
+  const rng = makeRng(77 + variant * 1013)
   const W = 2048, H = 288
   const [cm, gm] = canvas(W, H)
   const [cr, gr] = canvas(W / 2, H / 2)
@@ -449,6 +451,130 @@ export function smokePuff(): THREE.CanvasTexture {
     grd.addColorStop(1, 'rgba(255,255,255,0)')
     g.fillStyle = grd
     g.fillRect(0, 0, 128, 128)
+  }
+  return toTexture(c, true, false)
+}
+
+/** 縦長の突き出し看板（16 枚を 1 枚の絵に並べる。4 列 × 4 行） */
+export function signAtlas(): FacadeTextures {
+  const rng = makeRng(505)
+  const W = 1024, H = 1024
+  const [cm, gm] = canvas(W, H)
+  const [ce, ge] = canvas(W / 2, H / 2)
+  const [cr, gr] = canvas(8, 8)
+  gr.fillStyle = '#666'
+  gr.fillRect(0, 0, 8, 8)
+  const cw = W / 4, ch = H / 4
+  for (let k = 0; k < 16; k++) {
+    const x = (k % 4) * cw, y = Math.floor(k / 4) * ch
+    const bg = pick(rng, SIGN_COLORS)
+    const fg = bg === '#fafafa' ? '#c01818' : '#fff'
+    gm.fillStyle = '#222'
+    gm.fillRect(x, y, cw, ch)
+    gm.fillStyle = bg
+    gm.fillRect(x + 6, y + 6, cw - 12, ch - 12)
+    ge.fillStyle = bg
+    ge.fillRect((x + 6) / 2, (y + 6) / 2, (cw - 12) / 2, (ch - 12) / 2)
+    const name = pick(rng, SHOP_NAMES).slice(0, 4)
+    // 縦書き
+    const size = Math.min(56, (ch - 30) / name.length)
+    for (const [g, sc] of [[gm, 1], [ge, 0.5]] as const) {
+      g.fillStyle = fg
+      g.font = `bold ${size * sc}px "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif`
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      ;[...name].forEach((chr, i) => g.fillText(chr, (x + cw / 2) * sc, (y + 20 + size * (i + 0.5)) * sc))
+    }
+  }
+  return { map: toTexture(cm, true, false), rough: toTexture(cr, false), emissive: toTexture(ce, true, false) }
+}
+
+/** 自販機の正面（飲み物が並んで光る） */
+export function vendingFront(): FacadeTextures {
+  const rng = makeRng(606)
+  const [cm, gm] = canvas(256, 512)
+  const [ce, ge] = canvas(128, 256)
+  const [cr, gr] = canvas(8, 8)
+  gr.fillStyle = '#444'
+  gr.fillRect(0, 0, 8, 8)
+  gm.fillStyle = pick(rng, ['#d8d8dc', '#c0202a', '#1f4fa8'])
+  gm.fillRect(0, 0, 256, 512)
+  ge.fillStyle = '#000'
+  ge.fillRect(0, 0, 128, 256)
+  // 見本のガラス窓
+  gm.fillStyle = '#e8f0f4'
+  gm.fillRect(18, 30, 220, 290)
+  ge.fillStyle = '#dfefff'
+  ge.fillRect(9, 15, 110, 145)
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 6; col++) {
+    const x = 26 + col * 35, y = 44 + row * 70
+    gm.fillStyle = pick(rng, ['#c02020', '#20a040', '#e0a020', '#2050c0', '#603010', '#f0f0f0', '#a020a0'])
+    gm.fillRect(x, y, 22, 46)
+    gm.fillStyle = 'rgba(255,255,255,0.5)'
+    gm.fillRect(x + 3, y + 4, 4, 38)
+    gm.fillStyle = '#30c040'
+    gm.fillRect(x + 4, y + 52, 14, 6)
+    ge.fillStyle = '#40ff60'
+    ge.fillRect((x + 4) / 2, (y + 52) / 2, 7, 3)
+  }
+  // 取り出し口とお金の投入口
+  gm.fillStyle = '#222'
+  gm.fillRect(40, 420, 176, 50)
+  gm.fillRect(200, 340, 20, 40)
+  return { map: toTexture(cm, true, false), rough: toTexture(cr, false), emissive: toTexture(ce, true, false) }
+}
+
+/** 壊れた店の中（暗い店内・倒れた棚・ガラスのぎざぎざの縁）。透明な部分はガラスが割れて無い */
+export function smashedShop(): THREE.CanvasTexture {
+  const rng = makeRng(707)
+  const [c, g] = canvas(512, 384)
+  // 暗い店内
+  const grd = g.createLinearGradient(0, 0, 0, 384)
+  grd.addColorStop(0, '#15120f')
+  grd.addColorStop(1, '#2a241e')
+  g.fillStyle = grd
+  g.fillRect(0, 0, 512, 384)
+  // 倒れた棚と、散らばった商品
+  for (let k = 0; k < 7; k++) {
+    g.save()
+    g.translate(range(rng, 40, 470), range(rng, 150, 330))
+    g.rotate(range(rng, -0.8, 0.8))
+    g.fillStyle = '#4a3a2a'
+    g.fillRect(-60, -8, 120, 16)
+    g.restore()
+  }
+  for (let k = 0; k < 120; k++) {
+    g.fillStyle = pick(rng, ['#c83030', '#e0c040', '#3070c0', '#40a050', '#e8e8e8', '#8a5a30'])
+    g.fillRect(range(rng, 10, 500), range(rng, 200, 380), range(rng, 6, 18), range(rng, 6, 16))
+  }
+  // 割れ残ったガラスのぎざぎざ（枠の近くだけ白っぽく残る）
+  g.fillStyle = 'rgba(200,220,230,0.55)'
+  for (const edge of [0, 1, 2, 3]) {
+    g.beginPath()
+    const pts: [number, number][] = []
+    for (let t = 0; t <= 1.0001; t += 0.08) {
+      const d = range(rng, 4, 46)
+      if (edge === 0) pts.push([t * 512, d])
+      else if (edge === 1) pts.push([512 - d, t * 384])
+      else if (edge === 2) pts.push([512 - t * 512, 384 - d])
+      else pts.push([d, 384 - t * 384])
+    }
+    const [sx, sy] = edge === 0 ? [0, 0] : edge === 1 ? [512, 0] : edge === 2 ? [512, 384] : [0, 384]
+    g.moveTo(sx, sy)
+    for (const [x, y] of pts) g.lineTo(x, y)
+    g.closePath()
+    g.fill()
+  }
+  // ひび
+  g.strokeStyle = 'rgba(230,240,245,0.6)'
+  g.lineWidth = 1.5
+  for (let k = 0; k < 18; k++) {
+    g.beginPath()
+    let x = rng() < 0.5 ? range(rng, 0, 512) : rng() < 0.5 ? 0 : 512
+    let y = range(rng, 0, 384)
+    g.moveTo(x, y)
+    for (let s = 0; s < 4; s++) { x += range(rng, -60, 60); y += range(rng, -40, 40); g.lineTo(x, y) }
+    g.stroke()
   }
   return toTexture(c, true, false)
 }
