@@ -8,6 +8,7 @@ import { ApiError } from '../../../api/client'
 import { ActionBar } from '../components/ActionBar'
 import { PokerFelt } from '../components/PokerFelt'
 import { pokerSounds } from '../sounds'
+import { dealBase, optimisticLine, stagedView } from '../staging'
 import {
   createTable, fetchAgents, fetchTable, nextHand, sendAction,
   type ActionKind, type PokerAgentDto, type PokerTableDto,
@@ -22,6 +23,10 @@ const FAMILY_GROUPS: [string, string][] = [
 ]
 
 const ACTION_LABELS = ['降りる', 'チェック/コール', 'ポットの0.5倍', 'ポットの1倍', 'オールイン']
+
+// AI の手を見せる間合い（ミリ秒）。自分が打ってから AI の最初の手が出るまでの最短と、手と手の間
+const AI_FIRST_PAUSE = 900
+const AI_STEP_PAUSE = 700
 
 const AGENT_KEY = 'poker.agent'
 const STACK_KEY = 'poker.stack'
@@ -59,21 +64,80 @@ export function PokerPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastHand = useRef(0)
+  const tableRef = useRef<PokerTableDto | null>(null)
+  // AI の手を少し間を置いて 1 つずつ見せている途中の状態（staging.ts）
+  const [stage, setStage] = useState<{ base: PokerTableDto; final: PokerTableDto; shown: number; settled: boolean } | null>(null)
+  const timers = useRef<number[]>([])
+  const actedAt = useRef(0)
 
-  // 局面が変わったときに音を鳴らす（新しい局・終局）
-  const apply = useCallback((next: PokerTableDto) => {
-    if (next.hand_no !== lastHand.current) {
-      lastHand.current = next.hand_no
-      pokerSounds.deal()
-    }
+  const clearTimers = () => {
+    timers.current.forEach((t) => window.clearTimeout(t))
+    timers.current = []
+  }
+  useEffect(() => clearTimers, [])
+
+  const finishSounds = (next: PokerTableDto) => {
     if (next.finished && next.result) {
       const gain = next.result.payoff[next.you]
       if (next.result.busted >= 0) pokerSounds.bust()
       else if (gain > 0) pokerSounds.win()
       else if (gain < 0) pokerSounds.lose()
     }
+  }
+
+  const aiSound = (text: string) => {
+    const body = text.split(': ', 2)[1] ?? ''
+    if (body.startsWith('フォールド')) pokerSounds.fold()
+    else if (body.startsWith('チェック')) pokerSounds.check()
+    else {
+      const m = /(\d+)/.exec(body)
+      pokerSounds.chips(m ? Number(m[1]) : 2, 200)
+    }
+  }
+
+  /** AI の手を `from` 行目から 1 つずつ見せていく。 */
+  const reveal = (base: PokerTableDto, final: PokerTableDto, from: number) => {
+    clearTimers()
+    setStage({ base, final, shown: from, settled: true })
+    const wait = Math.max(0, AI_FIRST_PAUSE - (Date.now() - actedAt.current))
+    let shown = from
+    const step = () => {
+      shown += 1
+      aiSound(final.log[shown - 1].text)
+      if (shown >= final.log.length) {
+        setStage(null)
+        finishSounds(final)
+      } else {
+        setStage({ base, final, shown, settled: true })
+        timers.current.push(window.setTimeout(step, AI_STEP_PAUSE))
+      }
+    }
+    timers.current.push(window.setTimeout(step, wait))
+  }
+
+  // サーバーから局面が来たときの反映。AI の手が入っていれば、間を置いて 1 つずつ見せる
+  const apply = useCallback((next: PokerTableDto) => {
+    const prev = tableRef.current
+    tableRef.current = next
     setTable(next)
     localStorage.setItem(TABLE_KEY, next.table_id)
+    const newHand = next.hand_no !== lastHand.current
+    if (newHand) {
+      lastHand.current = next.hand_no
+      pokerSounds.deal()
+      actedAt.current = Date.now()
+    }
+    const aiLines = next.log.filter((l) => l.player === next.ai).length
+    if (newHand && aiLines > 0) {
+      reveal(dealBase(next), next, 0)
+    } else if (!newHand && prev && !prev.finished && next.log.length > prev.log.length + 1) {
+      reveal(prev, next, prev.log.length + 1)
+    } else {
+      clearTimers()
+      setStage(null)
+      finishSounds(next)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const run = useCallback(
@@ -83,6 +147,8 @@ export function PokerPage() {
       try {
         apply(await fn())
       } catch (e) {
+        clearTimers()
+        setStage(null)
         setError(e instanceof ApiError ? e.message : String(e))
       } finally {
         setBusy(false)
@@ -122,6 +188,7 @@ export function PokerPage() {
           const t = await fetchTable(saved)
           if (!alive) return
           lastHand.current = t.hand_no
+          tableRef.current = t
           setTable(t)
           return
         } catch {
@@ -142,10 +209,19 @@ export function PokerPage() {
     if (kind === 'fold') pokerSounds.fold()
     else if (kind === 'check') pokerSounds.check()
     else pokerSounds.chips(kind === 'call' ? table.actions.call_amount : to, table.table_stacks[table.you])
+    // 返事を待たずに、まず自分の手だけを反映して見せる（AI の番になった、と分かるように）
+    const line = optimisticLine(table, kind, to)
+    const pseudo = { ...table, log: [...table.log, line] }
+    clearTimers()
+    actedAt.current = Date.now()
+    setStage({ base: table, final: pseudo, shown: pseudo.log.length, settled: false })
     void run(() => sendAction(table.table_id, kind, to))
   }
 
   const agentLabel = agents.find((a) => a.id === table?.agent)?.label ?? table?.agent ?? 'AI'
+  // 画面に出す局面。AI の手を見せている途中なら、その途中の局面
+  const shown = table && stage ? stagedView(stage.base, stage.final, stage.shown, stage.settled) : table
+  const waiting = busy || stage !== null
 
   return (
     <div className="page poker-page">
@@ -185,18 +261,18 @@ export function PokerPage() {
 
       {error && <p className="error">{error}</p>}
 
-      {table ? (
+      {table && shown ? (
         <>
-          <PokerFelt table={table} agentLabel={agentLabel} thinking={busy} />
+          <PokerFelt table={shown} agentLabel={agentLabel} thinking={waiting} />
           <ActionBar
-            table={table}
-            busy={busy}
+            table={shown}
+            busy={waiting}
             onAction={onAction}
             onNext={() => void run(() => nextHand(table.table_id))}
           />
           <section className="card poker-log">
             <h2>この局の流れ</h2>
-            {table.log.length === 0 ? (
+            {shown.log.length === 0 ? (
               <p className="muted">まだ何も起きていません。</p>
             ) : (
               <ol>
