@@ -4,6 +4,7 @@
     python -m rl.shogi.train --run-name v1                      # data/shogi/hcpe/*_train.hcpe を全部使う
     python -m rl.shogi.train --run-name v1 --resume --epochs 6  # 続きから
     python -m rl.shogi.train --run-name dbg --max-positions 200000 --epochs 1   # 動作確認
+    python -m rl.shogi.train --run-name v2 --blocks 15 --channels 192 --eval-mix 0.5 --epochs 5 --workers 8
 
 学習の考え方:
     方策: 「強い AI が実際に指した手」を正解として、次の一手を当てる（分類。クロスエントロピー）
@@ -42,6 +43,7 @@ class TrainConfig:
     blocks: int = 10
     channels: int = 128
     value_coef: float = 1.0
+    eval_mix: float = 0.0  # 価値の正解に「指した AI の評価値」を混ぜる割合（0 = 勝敗だけ。v2 から 0.5）
     max_positions: int = 0  # 0 なら全部。動作確認で減らすとき
     eval_every: int = 1000  # 何バッチごとにテスト局面で評価・保存するか（止まっても続きから再開できるように）
     eval_positions: int = 20000
@@ -90,7 +92,7 @@ def main() -> None:
     n_train = count_hcpe(train_paths)
     rng = np.random.default_rng(cfg.seed)
     indices = rng.choice(n_train, min(cfg.max_positions, n_train), replace=False) if cfg.max_positions else None
-    train_set = HcpeDataset(paths=train_paths, indices=indices)
+    train_set = HcpeDataset(paths=train_paths, indices=indices, eval_mix=cfg.eval_mix)
     test = load_hcpe(sorted(DATA_DIR.glob("*_test.hcpe")))
     test = test[rng.choice(len(test), min(cfg.eval_positions, len(test)), replace=False)]
     print(f"学習 {len(train_set):,} 局面 / テスト {len(test):,} 局面  device={device}")

@@ -13,6 +13,8 @@ import torch
 from cshogi import BLACK, BLACK_WIN, DRAW, Board, HuffmanCodedPosAndEval
 from cshogi.dlshogi import FEATURES1_NUM, FEATURES2_NUM, make_input_features, make_move_label
 
+EVAL_SCALE = 600.0  # 評価値（センチポーン）→ 勝率の換算。600 点で約 73%（dlshogi と同じくらい）
+
 
 def load_hcpe(paths: list[Path]) -> np.ndarray:
     """小さいデータ（テスト用など）を丸ごと読む。"""
@@ -31,8 +33,9 @@ class HcpeDataset(torch.utils.data.Dataset):
     """
 
     def __init__(self, records: np.ndarray | None = None, paths: list[Path] | None = None,
-                 indices: np.ndarray | None = None):
+                 indices: np.ndarray | None = None, eval_mix: float = 0.0):
         self.records = records
+        self.eval_mix = eval_mix
         self.paths = [str(p) for p in (paths or [])]
         sizes = [len(records)] if records is not None else [
             Path(p).stat().st_size // HuffmanCodedPosAndEval.itemsize for p in self.paths]
@@ -71,6 +74,13 @@ class HcpeDataset(torch.utils.data.Dataset):
         else:
             black_won = result == BLACK_WIN
             value = 1.0 if black_won == (b.turn == BLACK) else 0.0
+        score = int(r["eval"])  # 棋譜を指した AI 自身の評価値（hcpe には「先手から見た値」で入っている。0 は不明）
+        if b.turn != BLACK:
+            score = -score
+        if self.eval_mix and score:
+            # 勝敗だけを正解にすると、少ない対局の結果を丸暗記してしまう（価値の頭の過学習）。
+            # 指した AI の評価値を勝率に直したものを混ぜると、局面ごとの「どれくらい良いか」が学べる
+            value = (1 - self.eval_mix) * value + self.eval_mix * (1 / (1 + np.exp(-score / EVAL_SCALE)))
         return f1, f2, label, np.float32(value)
 
 

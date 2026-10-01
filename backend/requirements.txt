@@ -9,4 +9,5 @@ numpy==1.26.4  # cshogi の都合で 1.26 系
 numba==0.67.0  # ポーカーのソルバー（rl/poker/fastcfr.py）の走査を速くする
 # 将棋（ルール処理と棋譜の読み込み。cshogi は GPL-3.0）
 cshogi==1.0.6
+PySide6==6.11.2  # 将棋のデスクトップアプリ（desktop/shogi）
 py7zr==1.1.3
