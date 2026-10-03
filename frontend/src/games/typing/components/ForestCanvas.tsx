@@ -11,8 +11,9 @@
 //   日本語入力（IME）がオンのままだとキーが届かないので、気づいたら onIme で知らせる。
 
 import { useEffect, useRef, useState } from 'react'
-import type { GameEvent, TypingGame } from '../sim/game'
+import { type GameEvent, STRIKE_NAMES, type TypingGame } from '../sim/game'
 import { ForestScene } from '../scene/ForestScene'
+import { stageIndexFor } from '../scene/stages'
 import { GameMusic } from '../music'
 import { ForestAmbience, typingSounds } from '../sounds'
 
@@ -91,6 +92,20 @@ function playEvent(ev: GameEvent): void {
     case 'golden': return typingSounds.golden()
     case 'fragment': return typingSounds.fragment()
     case 'escape': return typingSounds.escape()
+    case 'arm': return typingSounds.arm()
+    case 'explode': return typingSounds.explode()
+    case 'shield-break': return typingSounds.shieldBreak()
+    case 'flank': return typingSounds.flank()
+    case 'dive-warn': return typingSounds.diveWarn()
+    case 'dive': return typingSounds.dive()
+    case 'decoy': return typingSounds.decoy()
+    case 'hand': return typingSounds.handRise()
+    case 'grab': return typingSounds.grab()
+    case 'formation': return typingSounds.formation()
+    case 'boss-phase2': return typingSounds.enrage()
+    case 'strike-warn': return typingSounds.strikeWarn()
+    case 'strike': return typingSounds.strike(ev.move)
+    case 'parry': return typingSounds.parry()
     case 'clear': return typingSounds.clear()
     case 'dead': return typingSounds.dead()
   }
@@ -158,10 +173,16 @@ function pop(el: HTMLElement, cls: string): void {
 }
 
 /** 倒した言葉の文字が 1 字ずつ光になって昇っていく（CSS のアニメーション。終わったら消す） */
-function dissolve(parent: HTMLElement, l: Label): void {
+function dissolve(parent: HTMLElement, l: Label, perfect = false): void {
   const el = document.createElement('div')
   el.className = l.el.classList.contains('boss') ? 'typing-dissolve boss' : 'typing-dissolve'
   el.style.transform = l.el.style.transform
+  if (perfect) {
+    const badge = document.createElement('div')
+    badge.className = 'typing-perfect'
+    badge.textContent = '完璧！'
+    el.append(badge)
+  }
   ;[...(l.text.textContent ?? '')].forEach((ch, i) => {
     const span = document.createElement('span')
     span.textContent = ch
@@ -200,8 +221,9 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
     const resize = () => scene.resize()
     window.addEventListener('resize', resize)
     resize()
-    // デバッグ用: コンソールから window.__typing で進行を見られる（例: __typing.enemies, __typing.oil = 5）
+    // デバッグ用: コンソールから window.__typing で進行、window.__typingScene で 3D の場面を見られる（例: __typing.oil = 5、__typingScene.setStage(1)）
     ;(window as unknown as { __typing?: TypingGame }).__typing = game
+    ;(window as unknown as { __typingScene?: ForestScene }).__typingScene = scene
 
     const ambience = new ForestAmbience()
     ambience.start()
@@ -217,6 +239,9 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
       if (!events.length) return
       for (const ev of events) {
         playEvent(ev)
+        // 場所: 波ごと・ボス戦で景色が変わる
+        if (ev.kind === 'wave') scene.setStage(stageIndexFor(game.chapter.id, ev.index, false))
+        if (ev.kind === 'boss') scene.setStage(stageIndexFor(game.chapter.id, 0, true))
         if (ev.kind === 'key') {
           scene.kick(0.12)
           pop(bar.el, 'typing-bar-pop')
@@ -241,7 +266,10 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         }
       }
       scene.handleEvents(events)
-      for (const ev of events) if (ev.kind === 'kill') killed.add(ev.id)
+      for (const ev of events) {
+        if (ev.kind === 'kill') killed.add(ev.id)
+        if (ev.kind === 'kill' && ev.perfect) perfect.add(ev.id)
+      }
       cb.current.onEvents(events)
     }
 
@@ -315,6 +343,8 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
     const labels = new Map<number, Label>()
     /** 倒された影の id。札を消すとき、文字が光になって昇る演出を出す */
     const killed = new Set<number>()
+    /** 1 回も間違えずに倒した影の id（「完璧！」を添える） */
+    const perfect = new Set<number>()
     const updateLabels = () => {
       const w = labelLayer.clientWidth, h = labelLayer.clientHeight
       const alive = new Set<number>()
@@ -349,7 +379,11 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         const scale = e.kind === 'boss' ? 1 : Math.max(0.62, Math.min(1.15, 1.25 - e.z / 34))
         const locked = game.target === e
         l.el.style.display = ''
-        l.el.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -100%) scale(${scale})`
+        // 横から回り込む影は画面の外にいることがあるので、札は画面の端に寄せて出す（どちらから来るか分かるように）
+        const px = Math.max(70, Math.min(w - 70, pos.x))
+        l.el.classList.toggle('offscreen-left', pos.x < 70)
+        l.el.classList.toggle('offscreen-right', pos.x > w - 70)
+        l.el.style.transform = `translate(${px}px, ${Math.max(70, pos.y)}px) translate(-50%, -100%) scale(${scale})`
         l.el.style.zIndex = locked ? '1000' : String(Math.round(100 - e.z))
         l.el.classList.toggle('locked', locked)
         l.el.classList.toggle('near', e.z < 7 && e.kind !== 'boss')
@@ -363,11 +397,25 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         l.el.classList.toggle('aiming', e.state === 'aim')
         l.el.classList.toggle('charging', e.kind === 'boss' && game.bossCharging !== null)
         l.el.classList.toggle('in-dark', game.darkness > 0 && !visible)
+        l.el.classList.toggle('shielded', game.isShielded(e))
+        l.el.classList.toggle('guardian', e.behavior === 'guardian')
+        l.el.classList.toggle('mirror', e.behavior === 'mirror')
+        l.el.classList.toggle('hover', e.state === 'hover')
+        l.el.classList.toggle('hand', e.behavior === 'hand')
+        l.el.classList.toggle('elder', e.behavior === 'elder')
+        // 時限の影・足もとの手: 残り秒数を札に出す
+        // 技を溜めている影: 札に技の名前
+        if (e.state === 'strike' && e.move) l.el.dataset.move = `${STRIKE_NAMES[e.move]}！`
+        else delete l.el.dataset.move
+        const fuse = game.fuseLeft(e)
+        if (fuse !== null) l.el.dataset.fuse = String(Math.ceil(fuse))
+        else delete l.el.dataset.fuse
       }
       for (const [id, l] of labels) {
         if (!alive.has(id)) {
-          if (killed.has(id) && l.el.style.display !== 'none') dissolve(labelLayer, l)
+          if (killed.has(id) && l.el.style.display !== 'none') dissolve(labelLayer, l, perfect.has(id))
           killed.delete(id)
+          perfect.delete(id)
           l.el.remove()
           labels.delete(id)
         }

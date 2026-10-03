@@ -14,6 +14,9 @@
 // スマホなど小さい画面では重いのでブルームを切る（quality = 'low'）。
 //
 // update() に game を渡さない（null）と「タイトル画面の森」になる。ゆっくり歩き、遠くに影が何体か漂う。
+//
+// 場所（stages.ts）: 章の中でも波ごとに景色が変わる（setStage）。空・霧・木の色は数秒かけて移り変わり、
+// 新しい場所の木・竹・岩などは遠くから現れ、前の場所のものは後ろへ流れ去る。場所に入ると目印（landmarks.ts）が前から近づく。
 
 import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -21,11 +24,13 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import type { Behavior } from '../sim/chapters'
-import { type Enemy, type EnemyKind, type GameEvent, MAX_OIL, type TypingGame } from '../sim/game'
+import type { Enemy, EnemyKind, GameEvent, TypingGame } from '../sim/game'
+import { buildLandmark } from './landmarks'
 import { Mist } from './mist'
 import { AmbientFireflies, Particles } from './particles'
 import { createShadeMaterial, SHAPE_SCALE, type ShadeMaterial, type ShapeName } from './shade'
 import { disposeTextures, foxFireTexture, glowTexture, moonTexture } from './textures'
+import { type Stage, stagesFor } from './stages'
 import { type Theme, themeFor } from './themes'
 
 const EYE_HEIGHT = 1.6
@@ -46,6 +51,8 @@ interface Shown {
   z: number
   behavior?: Behavior
   state?: Enemy['state']
+  /** 地面からの高さ（急降下・火の雨） */
+  lift?: number
 }
 
 /**
@@ -69,8 +76,28 @@ const BEHAVIOR_SHAPES: Partial<Record<Behavior, ShapeName[]>> = {
   caller: ['lantern'],
   mimic: ['kodama'],
   golden: ['round'],
+  bomb: ['oneEye'],
+  guardian: ['wall'],
+  flanker: ['cat'],
+  diver: ['tengu'],
+  phantom: ['foxMask'],
+  mirror: ['twins'],
+  hand: ['hand'],
+  elder: ['round'],
 }
 const GOLD = 0xffc040
+/** 動き方ごとの、もやの色（同じ形でも、何をしてくるか色で見分けられるように） */
+const BEHAVIOR_AURA: Partial<Record<Behavior, number>> = {
+  golden: GOLD,
+  bomb: 0xff4a1a,
+  guardian: 0x60b0ff,
+  flanker: 0x40ff90,
+  diver: 0xc050ff,
+  phantom: 0xe8e8ff,
+  mirror: 0x30e0d0,
+  hand: 0xff2a3a,
+  elder: 0xd0c0ff,
+}
 
 interface EnemyModel {
   group: THREE.Group
@@ -86,7 +113,19 @@ interface EnemyModel {
   bob: number
   /** 狙われ具合（0〜1。なめらかに変える） */
   lock: number
+  /** 技を放った瞬間からの秒数（目の前まで突っ込んでくる動き。-1 なら動いていない） */
+  attackT: number
 }
+
+/** 毒の玉など、こちらへ飛んでくる見た目だけの物（当たり判定は sim 側） */
+interface Missile {
+  sprite: THREE.Sprite
+  from: THREE.Vector3
+  t: number
+}
+
+/** 技を放った瞬間に、目の前まで突っ込んでくる時間（秒） */
+const LUNGE_VISUAL = 0.24
 
 interface Beam {
   mesh: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>
@@ -98,6 +137,44 @@ interface Scenery {
   z: number
   s: number
   r: number
+  /** 今の場所で見えているか（遠くにいるときと、後ろから奥へ回り込んだときに決め直す） */
+  on?: boolean
+  /** 木の多さの判定に使う乱数（0〜1） */
+  k?: number
+}
+
+/** 木の多さ → 何割の木を出すか */
+const TREE_FRAC: Record<Stage['trees'], number> = { dense: 1, normal: 0.7, few: 0.3, none: 0 }
+/** 色の移り変わる速さ */
+const PALETTE_SPEED = 0.6
+
+/** 今の色（目標の色へ毎フレーム寄せる） */
+class LivePalette {
+  skyTop = new THREE.Color()
+  skyBottom = new THREE.Color()
+  fog = new THREE.Color()
+  fogDensity = 0.04
+  ground = new THREE.Color()
+  foliage = new THREE.Color()
+  trunk = new THREE.Color()
+  ambient = new THREE.Color()
+
+  set(t: Theme, s: Stage): void {
+    const p = s.palette ?? {}
+    this.skyTop.set(p.skyTop ?? t.skyTop)
+    this.skyBottom.set(p.skyBottom ?? t.skyBottom)
+    this.fog.set(p.fog ?? t.fog)
+    this.fogDensity = p.fogDensity ?? t.fogDensity
+    this.ground.set(p.ground ?? t.ground)
+    this.foliage.set(p.foliage ?? t.foliage)
+    this.trunk.set(p.trunk ?? t.trunk)
+    this.ambient.set(p.ambient ?? t.ambient)
+  }
+
+  lerpTo(o: LivePalette, k: number): void {
+    for (const key of ['skyTop', 'skyBottom', 'fog', 'ground', 'foliage', 'trunk', 'ambient'] as const) this[key].lerp(o[key], k)
+    this.fogDensity += (o.fogDensity - this.fogDensity) * k
+  }
 }
 
 /** 小さい画面・タッチの端末ではブルームを切る（重いため） */
@@ -122,6 +199,17 @@ export class ForestScene {
   private trunks: THREE.InstancedMesh
   private crowns: THREE.InstancedMesh
   private mushrooms: { items: Scenery[]; mesh: THREE.InstancedMesh } | null = null
+  /** 場所ごとの景色（竹・葦・岩）と、水面・目印 */
+  private bamboo!: { items: Scenery[]; mesh: THREE.InstancedMesh }
+  private reeds!: { items: Scenery[]; mesh: THREE.InstancedMesh }
+  private rocks!: { items: Scenery[]; mesh: THREE.InstancedMesh }
+  private water!: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
+  private groundMat!: THREE.MeshLambertMaterial
+  private landmarks: THREE.Group[] = []
+  private stages: Stage[]
+  private stageIndex = 0
+  private palette = new LivePalette()
+  private paletteGoal = new LivePalette()
   /** 足もとの草と石（歩くと後ろへ流れ、進んでいる感じを出す） */
   private grass: { items: Scenery[]; mesh: THREE.InstancedMesh }
   private stones: { items: Scenery[]; mesh: THREE.InstancedMesh }
@@ -136,6 +224,7 @@ export class ForestScene {
   private models = new Map<number, EnemyModel>()
   private shadeGeo = new THREE.PlaneGeometry(1, 1)
   private beams: Beam[] = []
+  private missiles: Missile[] = []
   private nextBeam = 0
   private composer: EffectComposer | null = null
   /** 鈴を鳴らしたときに地面を広がる光の輪 */
@@ -156,6 +245,7 @@ export class ForestScene {
 
   constructor(canvas: HTMLCanvasElement, themeId: string, quality: Quality = defaultQuality()) {
     this.theme = themeFor(themeId)
+    this.stages = stagesFor(themeId)
     const t = this.theme
     // ブルームを使うときは描き先の MSAA でギザギザを消すので、ここでのアンチエイリアスは要らない
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'low' })
@@ -216,11 +306,13 @@ export class ForestScene {
     this.scene.add(this.buildGround())
 
     // --- 木（幹と葉をそれぞれ 1 つの InstancedMesh にまとめる。数百本でも軽い） ---
-    const treeCount = t.props.fewTrees ? 90 : 230
-    const minX = t.props.fewTrees ? 10 : 5.5
+    const treeCount = 240
     for (let i = 0; i < treeCount; i++) {
       const side = Math.random() < 0.5 ? -1 : 1
-      this.trees.push({ x: side * (minX + Math.random() ** 1.5 * 34), z: Math.random() * TREE_RANGE - 6, s: 0.7 + Math.random() * 0.9, r: Math.random() * Math.PI })
+      // k: この値が「木の多さ」（TREE_FRAC）より小さい木だけを出す。
+      // 道から遠い木ほど k を小さくしておくと、まばらな場所では道のまわりがひらけ、遠くに木が残る
+      const far = Math.random() ** 1.5
+      this.trees.push({ x: side * (5.5 + far * 34), z: Math.random() * TREE_RANGE - 6, s: 0.7 + Math.random() * 0.9, r: Math.random() * Math.PI, k: 1 - far * 0.6 - Math.random() * 0.4 })
     }
     this.trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.16, 0.3, 1, 6), new THREE.MeshLambertMaterial({ color: t.trunk }), treeCount)
@@ -229,25 +321,38 @@ export class ForestScene {
     this.scene.add(this.trunks, this.crowns)
 
     if (t.props.mushrooms) this.mushrooms = this.buildMushrooms()
+    // 場所ごとの景色: 竹（細く高い節のある幹）・葦（細長い草）・岩
+    this.bamboo = this.buildScatter(200, 3, 16, new THREE.CylinderGeometry(0.07, 0.09, 1, 6), new THREE.MeshLambertMaterial({ color: 0x3a6a34 }), 0.8, 1.3, TREE_RANGE)
+    this.reeds = this.buildScatter(420, 2.3, 10, new THREE.ConeGeometry(0.03, 1, 3), new THREE.MeshLambertMaterial({ color: 0x4a5a2a }), 0.8, 1.6, 60)
+    this.rocks = this.buildScatter(70, 4, 16, new THREE.DodecahedronGeometry(0.8, 0), new THREE.MeshLambertMaterial({ color: 0x46464a }), 0.5, 1.8, TREE_RANGE)
+    // 水面（道の両わき。場所によって、じわっと現れる）
+    this.water = new THREE.Mesh(
+      new THREE.PlaneGeometry(160, 200),
+      new THREE.MeshStandardMaterial({ color: 0x0d1c1e, roughness: 0.12, metalness: 0.7, transparent: true, opacity: 0 }),
+    )
+    this.water.rotation.x = -Math.PI / 2
+    this.water.position.set(0, 0.03, 80)
+    this.scene.add(this.water)
     // 足もとの草（道の両わき）と、道に転がる小石
     this.grass = this.buildScatter(520, 1.6, 12, new THREE.ConeGeometry(0.05, 0.4, 3), new THREE.MeshLambertMaterial({ color: new THREE.Color(t.foliage).multiplyScalar(1.6) }), 0.6, 1.5)
     this.stones = this.buildScatter(140, 0, 3, new THREE.DodecahedronGeometry(0.09, 0), new THREE.MeshLambertMaterial({ color: 0x5a5a56 }), 0.6, 1.6)
-    if (t.props.torii) {
-      for (let i = 0; i < 5; i++) {
-        const g = this.buildTorii()
-        g.position.z = 12 + i * 26
-        this.torii.push(g)
-        this.scene.add(g)
-      }
+    // 鳥居と石灯籠: いつも作っておき、場所によって出し入れする
+    for (let i = 0; i < 6; i++) {
+      const g = this.buildTorii()
+      g.position.z = 6 + i * 13
+      this.torii.push(g)
+      this.scene.add(g)
     }
-    if (t.props.stoneLanterns) {
-      for (let i = 0; i < 12; i++) {
-        const g = this.buildStoneLantern()
-        g.position.set(i % 2 ? -5 : 5, 0, 4 + Math.floor(i / 2) * 14)
-        this.stoneLanterns.push(g)
-        this.scene.add(g)
-      }
+    for (let i = 0; i < 12; i++) {
+      const g = this.buildStoneLantern()
+      g.position.set(i % 2 ? -5 : 5, 0, 4 + Math.floor(i / 2) * 14)
+      this.stoneLanterns.push(g)
+      this.scene.add(g)
     }
+    // 最初の場所（色はいきなりその色に）
+    this.palette.set(t, this.stages[0])
+    this.paletteGoal.set(t, this.stages[0])
+    this.setStage(0, true)
 
     // --- 地面の霧・ホタル・光の粒 ---
     this.mist = new Mist(new THREE.Color(t.fog).lerp(new THREE.Color(0x8a9ab8), 0.35), t.mist)
@@ -323,23 +428,22 @@ export class ForestScene {
     const geo = new THREE.PlaneGeometry(160, 200, 60, 80)
     geo.rotateX(-Math.PI / 2)
     // 色を少しずつばらつかせ、土のむらにする
+    // むら（明るさのばらつき）だけを頂点に持たせ、色そのものはマテリアルで付ける（場所ごとに色を変えるため）
     const colors = new Float32Array(geo.attributes.position.count * 3)
-    const base = new THREE.Color(t.props.water ?? t.ground)
     for (let i = 0; i < geo.attributes.position.count; i++) {
       const k = 0.75 + Math.random() * 0.5
-      colors.set([base.r * k, base.g * k, base.b * k], i * 3)
+      colors.set([k, k, k], i * 3)
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    const mat = t.props.water
-      ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.15, metalness: 0.6 })
-      : new THREE.MeshLambertMaterial({ vertexColors: true })
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, color: t.ground })
+    this.groundMat = mat
     const ground = new THREE.Mesh(geo, mat)
     ground.position.z = 80
     group.add(ground)
     // 道（水の章では、水の上に土の道が一本通っている）
     const path = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 200), new THREE.MeshLambertMaterial({ color: t.path }))
     path.rotation.x = -Math.PI / 2
-    path.position.set(0, 0.01, 80)
+    path.position.set(0, 0.05, 80) // 水面（0.03）より少し上
     group.add(path)
     return group
   }
@@ -375,11 +479,11 @@ export class ForestScene {
 
   /** 道のまわりに小物をばらまく（minX〜maxX の範囲。0 なら道の上も含む） */
   private buildScatter(n: number, minX: number, maxX: number, geo: THREE.BufferGeometry, mat: THREE.Material,
-                       sMin: number, sMax: number): { items: Scenery[]; mesh: THREE.InstancedMesh } {
+                       sMin: number, sMax: number, range = 60): { items: Scenery[]; mesh: THREE.InstancedMesh } {
     const items: Scenery[] = []
     for (let i = 0; i < n; i++) {
       const side = Math.random() < 0.5 ? -1 : 1
-      items.push({ x: side * (minX + Math.random() * (maxX - minX)), z: Math.random() * 60 - 6, s: sMin + Math.random() * (sMax - sMin), r: Math.random() * Math.PI })
+      items.push({ x: side * (minX + Math.random() * (maxX - minX)), z: Math.random() * range - 6, s: sMin + Math.random() * (sMax - sMin), r: Math.random() * Math.PI, on: true })
     }
     const mesh = new THREE.InstancedMesh(geo, mat, n)
     this.scene.add(mesh)
@@ -466,13 +570,16 @@ export class ForestScene {
         ?? (e.kind === 'boss' ? t.bossShape : byBehavior ? pick(byBehavior) : pick(t.shades))
       size = (e.kind === 'boss' ? 8.5 : 2.3) * (SHAPE_SCALE[shape] ?? 1)
       const golden = e.behavior === 'golden'
-      mat = createShadeMaterial(shape, golden ? GOLD : t.shadeAura, t.fog, t.fogDensity, golden ? 0xfff0a0 : undefined)
+      const aura = (e.behavior && BEHAVIOR_AURA[e.behavior]) ?? t.shadeAura
+      mat = createShadeMaterial(shape, aura, t.fog, t.fogDensity, golden ? 0xfff0a0 : undefined)
+      if (e.behavior === 'guardian') size *= 1.15
+      if (e.behavior === 'elder') size *= 1.4 // 語り影は大きい（長い文章を持っている）
       body = new THREE.Mesh(this.shadeGeo, mat)
       body.scale.setScalar(size)
     }
     group.add(body)
     this.scene.add(group)
-    return { group, body, mat, kind: e.kind, size, pulse: 0, flash: 0, bob: Math.random() * 10, lock: 0 }
+    return { group, body, mat, kind: e.kind, size, pulse: 0, flash: 0, bob: Math.random() * 10, lock: 0, attackT: -1 }
   }
 
   // ------------------------------------------------------------------ 毎フレーム
@@ -480,19 +587,24 @@ export class ForestScene {
   private placeScenery(walked: number): void {
     const d = this.dummy
     let ci = 0
+    const stage = this.stages[this.stageIndex]
     this.trees.forEach((tr, i) => {
       tr.z -= walked
-      if (tr.z < -8) tr.z += TREE_RANGE
-      const h = 3.2 * tr.s
+      if (tr.z < -8) {
+        tr.z += TREE_RANGE
+        tr.on = (tr.k ?? 1) < TREE_FRAC[stage.trees] // 奥へ回り込んだとき、今の場所に合わせて出すか決め直す
+      }
+      const h = 3.2 * tr.s * (tr.on ? 1 : 0)
       d.position.set(tr.x, h / 2, tr.z)
       d.rotation.set(0, tr.r, 0)
-      d.scale.set(tr.s, h, tr.s)
+      d.scale.set(tr.on ? tr.s : 0, h, tr.on ? tr.s : 0)
       d.updateMatrix()
       this.trunks.setMatrixAt(i, d.matrix)
       // 葉は円すいを 2 段重ねる（杉っぽく）
       for (const [y, w, hh] of [[h + 1.1 * tr.s, 1.9, 3.2], [h + 2.6 * tr.s, 1.3, 2.6]]) {
         d.position.set(tr.x, y, tr.z)
-        d.scale.set(w * tr.s, hh * tr.s, w * tr.s)
+        d.scale.setScalar(0)
+        if (tr.on) d.scale.set(w * tr.s, hh * tr.s, w * tr.s)
         d.updateMatrix()
         this.crowns.setMatrixAt(ci++, d.matrix)
       }
@@ -525,9 +637,58 @@ export class ForestScene {
       })
       sc.mesh.instanceMatrix.needsUpdate = true
     }
-    for (const g of [...this.torii, ...this.stoneLanterns]) {
+    // 竹・葦・岩（場所によって出す。奥へ回り込んだときに決め直す）
+    const sets: [{ items: Scenery[]; mesh: THREE.InstancedMesh }, boolean, number, number][] = [
+      [this.bamboo, !!stage.bamboo, TREE_RANGE, 9], [this.reeds, !!stage.reeds, 60, 1.2], [this.rocks, !!stage.rocks, TREE_RANGE, 1],
+    ]
+    for (const [sc, enabled, range, height] of sets) {
+      sc.items.forEach((m, i) => {
+        m.z -= walked
+        if (m.z < -6) {
+          m.z += range
+          m.on = enabled
+        }
+        const s = m.on ? m.s : 0
+        if (sc === this.rocks) {
+          d.position.set(m.x, 0.3 * s, m.z)
+          d.rotation.set(m.r, m.r * 2, 0)
+          d.scale.set(s, s * 0.7, s)
+        } else {
+          d.position.set(m.x, height * s / 2, m.z)
+          d.rotation.set((m.r - 1.5) * 0.06, m.r, 0)
+          d.scale.set(s, height * s, s)
+        }
+        d.updateMatrix()
+        sc.mesh.setMatrixAt(i, d.matrix)
+      })
+      sc.mesh.instanceMatrix.needsUpdate = true
+    }
+    for (const g of this.torii) {
       g.position.z -= walked
-      if (g.position.z < -8) g.position.z += this.torii.includes(g) ? 26 * this.torii.length : 14 * (this.stoneLanterns.length / 2)
+      if (g.position.z < -8) {
+        g.position.z += 13 * this.torii.length
+        g.visible = !!stage.torii
+      }
+    }
+    for (const g of this.stoneLanterns) {
+      g.position.z -= walked
+      if (g.position.z < -8) {
+        g.position.z += 14 * (this.stoneLanterns.length / 2)
+        g.visible = !!stage.stoneLanterns
+      }
+    }
+    // 目印: 前から近づいてきて、後ろへ過ぎたら片づける
+    for (const g of [...this.landmarks]) {
+      g.position.z -= walked
+      if (g.position.z < -25) {
+        this.scene.remove(g)
+        g.traverse((o) => {
+          const mesh = o as THREE.Mesh
+          mesh.geometry?.dispose()
+          ;(mesh.material as THREE.Material | undefined)?.dispose?.()
+        })
+        this.landmarks = this.landmarks.filter((x) => x !== g)
+      }
     }
   }
 
@@ -540,7 +701,7 @@ export class ForestScene {
     this.placeScenery(walked)
 
     // ランタン: 油が少ないほど暗く、コンボが続くほど明るい。ゆらゆら揺れる
-    const oil = game ? game.oil / MAX_OIL : 1
+    const oil = game ? Math.min(1, game.oil / game.perks.maxOil) : 1
     const comboBoost = game ? Math.min(1, game.combo / 60) : 0.3
     const flick = 0.9 + 0.1 * Math.sin(this.time * 13) * Math.sin(this.time * 7.3)
     const level = (0.35 + 0.65 * oil) * (1 + comboBoost * 0.8) * flick
@@ -565,6 +726,23 @@ export class ForestScene {
     this.camera.lookAt(sx * 0.5 + look + Math.sin(this.stride) * 0.12 * walkAmt, EYE_HEIGHT - 0.1 + bob + (game ? 0 : 0.6), 10)
     this.camera.rotateZ(roll)
 
+    // 場所の色へ、数秒かけて移り変わる
+    this.palette.lerpTo(this.paletteGoal, Math.min(1, dt * PALETTE_SPEED))
+    const pal = this.palette
+    const su = this.sky.material.uniforms
+    ;(su.top.value as THREE.Color).copy(pal.skyTop)
+    ;(su.bottom.value as THREE.Color).copy(pal.skyBottom)
+    ;(this.scene.fog as THREE.FogExp2).color.copy(pal.fog)
+    ;(this.scene.background as THREE.Color).copy(pal.skyBottom)
+    this.groundMat.color.copy(pal.ground)
+    ;(this.crowns.material as THREE.MeshLambertMaterial).color.copy(pal.foliage)
+    ;(this.trunks.material as THREE.MeshLambertMaterial).color.copy(pal.trunk)
+    this.hemi.color.copy(pal.ambient)
+    // 水面は、じわっと現れて消える
+    const waterGoal = this.stages[this.stageIndex].water !== undefined ? 1 : 0
+    this.water.material.opacity += (waterGoal - this.water.material.opacity) * Math.min(1, dt * 0.8)
+    this.water.visible = this.water.material.opacity > 0.01
+
     // 終章: ボスを削るほど空が明けていく
     const t = this.theme
     if (game && t.dawnTop !== undefined && t.dawnBottom !== undefined) {
@@ -583,10 +761,11 @@ export class ForestScene {
       this.syncEnemies(dt, game.enemies, game.target?.id ?? null, game.bossCharging ? game.boss?.id ?? null : null)
       // 闇: 霧が濃くなり、ランタンが暗くなる
       const fog = this.scene.fog as THREE.FogExp2
-      const goalDensity = this.theme.fogDensity + (game.darkness > 0 ? 0.09 : 0)
+      const goalDensity = pal.fogDensity + (game.darkness > 0 ? 0.09 : 0)
       fog.density += (goalDensity - fog.density) * Math.min(1, dt * 3)
       if (game.darkness > 0) this.lanternLight.intensity *= 0.35
     } else {
+      ;(this.scene.fog as THREE.FogExp2).density = pal.fogDensity
       // 飾りの影: 遠くで左右に漂い、ときどき少し近づいてはまた離れる（一覧のときは止めておく）
       for (const d of this.gallery ? [] : this.decor) {
         d.phase += dt
@@ -597,6 +776,7 @@ export class ForestScene {
     }
     this.mist.update(dt, walked)
     this.updateBeams(dt)
+    this.updateMissiles(dt)
     this.updateBell(dt)
     this.fireflies.update(dt, walked, game?.result === 'clear' ? 1 : 0.6 + 0.4 * comboBoost)
     this.particles.update(dt)
@@ -620,8 +800,20 @@ export class ForestScene {
       m.pulse = Math.max(0, m.pulse - dt * 4)
       m.flash = Math.max(0, m.flash - dt * 5)
       m.lock += ((e.id === targetId ? 1 : 0) - m.lock) * Math.min(1, dt * 10)
-      const y = e.kind === 'boss' ? 3.6 : e.kind === 'fox' ? 1.3 : e.kind === 'orb' ? 1.5 : 1.35
+      const y = (e.kind === 'boss' ? 3.6 : e.kind === 'fox' ? 1.3 : e.kind === 'orb' ? 1.5 : e.behavior === 'hand' ? 0.75 : 1.35) + (e.lift ?? 0)
       m.group.position.set(e.x, y + Math.sin(m.bob * 2) * (e.kind === 'fox' ? 0.25 : 0.12), e.z)
+      // 技を溜めている: ふくらんで、震える
+      if (e.state === 'strike') {
+        m.pulse = Math.max(m.pulse, 0.8 + 0.5 * Math.sin(this.time * 22))
+        m.group.position.x += (Math.random() - 0.5) * 0.18
+      }
+      // 技を放った瞬間: 目の前まで一気に突っ込んできて、戻る
+      if (m.attackT >= 0) {
+        m.attackT += dt
+        const k = m.attackT / LUNGE_VISUAL
+        if (k >= 1) m.attackT = -1
+        else m.group.position.z += (2.4 - m.group.position.z) * Math.sin(k * Math.PI)
+      }
       const s = m.size * (1 + m.pulse * 0.15)
       if (m.kind === 'orb') {
         m.body.scale.setScalar(s * (1 + Math.sin(m.bob * 25) * 0.12))
@@ -639,7 +831,9 @@ export class ForestScene {
         // 力を溜めている影は、狙われていなくても目が赤く脈打つ（これから飛びかかってくる合図）
         // 吸い付いている影・力を溜めているボスも、赤く脈打つ
         const pulse = 0.6 + 0.4 * Math.sin(this.time * 18)
-        const windup = e.state === 'windup' || e.state === 'latched' || e.id === chargingId ? pulse : 0
+        // 爆発までの数を数えている影は、速く点滅する
+        const armed = e.state === 'armed' ? 0.5 + 0.5 * Math.sin(this.time * 22) : 0
+        const windup = e.state === 'windup' || e.state === 'latched' || e.state === 'hover' || e.state === 'strike' || e.id === chargingId ? pulse : armed
         if (e.id === chargingId) m.flash = Math.max(m.flash, 0.25 + 0.25 * Math.sin(this.time * 12))
         u.uLock.value = Math.max(m.lock, windup)
         u.uFlash.value = Math.max(m.flash, e.state === 'windup' ? 0.12 : 0)
@@ -652,6 +846,22 @@ export class ForestScene {
         ;(m.body.material as THREE.Material).dispose()
         this.models.delete(id)
       }
+    }
+  }
+
+  /** 毒の玉など: 影からこちらの顔へ飛んでくる（0.3 秒） */
+  private updateMissiles(dt: number): void {
+    const target = this.tmpV.set(0, EYE_HEIGHT - 0.1, 0.9)
+    for (const mi of [...this.missiles]) {
+      mi.t += dt / 0.3
+      if (mi.t >= 1) {
+        this.scene.remove(mi.sprite)
+        mi.sprite.material.dispose()
+        this.missiles = this.missiles.filter((x) => x !== mi)
+        continue
+      }
+      mi.sprite.position.lerpVectors(mi.from, target, mi.t)
+      mi.sprite.scale.setScalar(0.5 + mi.t * 2.5)
     }
   }
 
@@ -680,16 +890,17 @@ export class ForestScene {
     this.bellRing.material.opacity = (1 - k) ** 1.5
   }
 
-  /** ランタンから to へ光の筋を飛ばす */
-  private shootBeam(to: THREE.Vector3): void {
-    const from = this.lanternGlow.getWorldPosition(new THREE.Vector3())
+  /** from（省略するとランタン）から to へ光の筋を飛ばす。color を渡すとその色（舌など） */
+  private shootBeam(to: THREE.Vector3, fromPos?: THREE.Vector3, color?: number, width = 0.04): void {
+    const from = fromPos?.clone() ?? this.lanternGlow.getWorldPosition(new THREE.Vector3())
     const b = this.beams[this.nextBeam]
+    b.mesh.material.color.set(color ?? this.theme.lantern).multiplyScalar(color ? 1.6 : 3)
     this.nextBeam = (this.nextBeam + 1) % this.beams.length
     const dir = to.clone().sub(from)
     const len = dir.length()
     b.mesh.position.copy(from).addScaledVector(dir, 0.5)
     b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
-    b.mesh.scale.set(0.04, len, 0.04)
+    b.mesh.scale.set(width, len, width)
     b.mesh.visible = true
     b.life = BEAM_LIFE
   }
@@ -761,6 +972,69 @@ export class ForestScene {
           }
           break
         }
+        case 'explode': {
+          const m = this.models.get(ev.id)
+          this.shake = Math.max(this.shake, 1.5)
+          if (m) {
+            this.particles.burst(m.group.position, { count: 160, color: 0xff6a1a, speed: 8, life: 1, size: 0.5, lift: 0.5 })
+            this.particles.burst(m.group.position, { count: 40, color: 0xffffff, speed: 10, life: 0.4, size: 0.4, lift: 0 })
+          }
+          break
+        }
+        case 'shield-break': {
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(m.group.position, { count: 80, color: 0x80c8ff, speed: 6, life: 1, size: 0.35, lift: 0 })
+          break
+        }
+        case 'dive':
+          this.shake = Math.max(this.shake, 0.4)
+          break
+        case 'decoy': {
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(m.group.position, { count: 40, color: 0xe8e8ff, speed: 3, life: 0.7, size: 0.35, lift: 0.5 })
+          break
+        }
+        case 'hand': {
+          // 地面を割って手が出てくる: 土くれが飛ぶ
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(this.tmpV.copy(m.group.position).setY(0.2), { count: 40, color: 0x6a4a2a, speed: 3, life: 0.9, size: 0.3, lift: -2 })
+          break
+        }
+        case 'grab':
+          this.shake = Math.max(this.shake, 1)
+          break
+        case 'strike': {
+          this.shake = Math.max(this.shake, ev.move === 'slam' || ev.move === 'leap' ? 1.3 : ev.move === 'volley' ? 0.3 : 0.8)
+          const m = this.models.get(ev.id)
+          if (m) {
+            const at = m.group.position.clone()
+            const face = new THREE.Vector3(0, EYE_HEIGHT - 0.15, 1)
+            if (ev.move === 'claw' || ev.move === 'bite' || ev.move === 'leap' || ev.move === 'slam') m.attackT = 0
+            if (ev.move === 'tongue') this.shootBeam(face, at, 0xff5a9a, 0.12)
+            if (ev.move === 'spit') {
+              const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glowTexture(), color: new THREE.Color(0.6, 1.6, 0.3), transparent: true, depthWrite: false,
+                blending: THREE.AdditiveBlending, fog: false,
+              }))
+              sprite.position.copy(at)
+              this.scene.add(sprite)
+              this.missiles.push({ sprite, from: at, t: 0 })
+            }
+            if (ev.move === 'volley') this.particles.burst(at, { count: 50, color: 0xff7a20, speed: 4, life: 0.5, size: 0.35, lift: 0 })
+          }
+          if (m && (ev.move === 'slam' || ev.move === 'leap')) {
+            this.particles.burst(this.tmpV.copy(m.group.position).setY(0.2), { count: 60, color: 0x7a6a50, speed: 4, life: 1, size: 0.35, lift: -1.5 })
+          }
+          break
+        }
+        case 'parry': {
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(m.group.position, { count: 50, color: 0xffffff, speed: 5, life: 0.5, size: 0.3, lift: 0 })
+          break
+        }
+        case 'formation':
+          this.shake = Math.max(this.shake, 0.3)
+          break
         case 'escape': {
           const m = this.models.get(ev.id)
           if (m) this.particles.burst(m.group.position, { count: 40, color: GOLD, speed: 2, life: 1.2, size: 0.3, lift: 1.5 })
@@ -810,6 +1084,36 @@ export class ForestScene {
           break
         }
       }
+    }
+  }
+
+  /**
+   * 場所を変える（stages.ts の番号）。色は数秒かけて移り変わり、新しい景色は遠くから現れ、
+   * 前の場所の景色は後ろへ流れ去る。目印があれば前から近づいてくる。
+   * immediate = true は、最初の場所（近くのものも、いきなりその場所の景色にする）
+   */
+  setStage(index: number, immediate = false): void {
+    const i = Math.max(0, Math.min(this.stages.length - 1, index))
+    if (i === this.stageIndex && !immediate) return
+    this.stageIndex = i
+    const stage = this.stages[i]
+    this.paletteGoal.set(this.theme, stage)
+    if (immediate) this.palette.set(this.theme, stage)
+    // 遠く（30m より奥）にあるものだけ、今の場所に合わせて出し入れする（近くのものは、そのまま後ろへ流れ去る）
+    const decide = (m: Scenery, on: boolean) => { if (immediate || m.z > 30) m.on = on }
+    for (const tr of this.trees) decide(tr, (tr.k ?? 1) < TREE_FRAC[stage.trees])
+    for (const m of this.bamboo.items) decide(m, !!stage.bamboo)
+    for (const m of this.reeds.items) decide(m, !!stage.reeds)
+    for (const m of this.rocks.items) decide(m, !!stage.rocks)
+    for (const g of this.torii) if (immediate || g.position.z > 30) g.visible = !!stage.torii
+    for (const g of this.stoneLanterns) if (immediate || g.position.z > 30) g.visible = !!stage.stoneLanterns
+    if (stage.water !== undefined) this.water.material.color.set(stage.water)
+    if (immediate) this.water.material.opacity = stage.water !== undefined ? 1 : 0
+    if (stage.landmark && !immediate) {
+      const g = buildLandmark(stage.landmark)
+      g.position.z = 42
+      this.scene.add(g)
+      this.landmarks.push(g)
     }
   }
 

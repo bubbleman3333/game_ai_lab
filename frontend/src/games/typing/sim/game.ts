@@ -13,14 +13,19 @@
 // 攻めてくる影（chapters.ts の Behavior）:
 //   火の玉を投げる（shooter → orb）・闇を吐く（ink → darkness）・咆哮（howl → 打ちかけが崩れ、お手本が消える）・
 //   吸い付いて油を吸う（leech）・仲間を呼ぶ（caller）・言葉が化ける（mimic）・溜めて飛びかかる（lunge）など。
+//   時限の影（bomb）・結界で守る影（guardian）・横から回り込む影（flanker）・急降下（diver）・幻影（phantom）・
+//   札が裏返る影（mirror）・足もとから生える手（hand）。
+// 陣形（Formation）: 包囲・行列・挟み撃ち・火の雨・一斉突撃・地の手。影が出るときに formationChance の割合でまとめて仕掛ける。
 // ボスは attackEvery 秒ごとに力を溜め（boss-charge）、attacks を順に放つ（boss-attack）。
+// 言葉を半分返すと怒り（boss-phase2）、攻撃の間隔が短くなって、技を 2 つ続けて放つ。
 // 金色の影（golden）は母の手記を持っている。攻撃せず、近づくと逃げる。
 //
 // 仲間の力（Perks）: 物語で助けた仲間が力を貸してくれる（油の上限・霧の見える距離・油が戻る打数・鈴）。
 // どの仲間がいるかはセーブで決まる（save.ts の perksOf）。鈴は ringBell() で鳴らす。
 
 import {
-  type Behavior, type BossAttack, CHAPTERS, type Chapter, ENDLESS, FAST_WORDS, GOLDEN_WORDS, ORB_WORDS, type Wave, type Word,
+  type Behavior, type BossAttack, CHAPTERS, type Chapter, ENDLESS, FAST_WORDS, type Formation, GOLDEN_WORDS, ORB_WORDS,
+  type StrikeMoveName, type Wave, type Word,
 } from './chapters'
 import { RomajiMatcher } from './romaji'
 import { Rng } from './rng'
@@ -78,6 +83,45 @@ export const LEECH_DRAIN = 3
 export const GOLDEN_FLEE_Z = 7
 /** ボスが攻撃の前に力を溜める秒数 */
 export const BOSS_CHARGE = 1.3
+/** 怒ったボスの攻撃の間隔（ふだんの何倍か） */
+export const ENRAGE_MUL = 0.6
+/** 時限の影（bomb）: 止まる距離と、爆発までの秒数・爆発で減る油 */
+export const BOMB_Z = 9
+export const BOMB_FUSE = 5
+export const BOMB_DAMAGE = 2
+/** 守りの影（guardian）が守る、左右の幅（m） */
+export const GUARD_RANGE_X = 2.8
+/** 回り込む影（flanker）が出てくる横の位置（m） */
+export const FLANK_X = 7.5
+/** 急降下（diver）: 出てくる距離・高さ・空で溜める秒数・降りてくる速さ */
+export const DIVE_Z = 17
+export const DIVE_HEIGHT = 6
+export const DIVE_HOVER = 1.4
+export const DIVE_SPEED = 9
+/** 足もとの手（hand）が、つかみかかるまでの秒数 */
+export const HAND_TIME = 3.6
+/** 幻影の偽物を打つと、本物がどれだけ詰め寄るか（m） */
+export const PHANTOM_LUNGE = 4
+/** 火の雨が降り始める高さ（m） */
+export const RAIN_HEIGHT = 7
+/**
+ * 技（strike）: ふつうの影が近づく途中で足を止め、技を溜めてから仕掛ける。
+ * 溜めているあいだ（STRIKE_WINDUP 秒）に言葉を打ち切れば止められる（見切り）。当たると油 -1、影は跳び退く。
+ */
+export const STRIKE_Z = 13
+export const STRIKE_MIN_Z = 5
+export const STRIKE_WINDUP = 1.3
+export const STRIKE_RECOIL = 4
+/**
+ * 技の種類: 引っかき・噛みつき・毒吐き・舌・跳びかかり（上から）・叩きつけ（伸び上がって下へ）・
+ * 一斉射撃（火の玉を一度に 3 つ扇状に飛ばす。当たるのではなく、打ち落とす火の玉が 3 つ増える）
+ */
+export type StrikeMove = StrikeMoveName
+export const STRIKE_NAMES: Record<StrikeMove, string> = {
+  claw: '引っかき', bite: '噛みつき', spit: '毒吐き', tongue: '舌', leap: '跳びかかり', slam: '叩きつけ', volley: '一斉射撃',
+}
+/** 技を仕掛けてくる動き方（ほかの動き方は、それぞれの攻撃を持っている） */
+const STRIKERS = new Set<Behavior>(['walk', 'creep', 'hop', 'zigzag', 'tank', 'split', 'mirror', 'guardian', 'caller', 'mimic', 'flanker', 'phantom', 'howl', 'ink'])
 
 /** 難しさ。影が目の前に来るまでの時間に掛ける */
 export const DIFFICULTIES = {
@@ -105,10 +149,25 @@ export interface Enemy {
   /** 動き方（chapters.ts の Behavior）。狐火・ボス・火の玉は 'walk' */
   behavior: Behavior
   /**
-   * 段階: move 近づく / windup 溜める（lunge）/ dash 飛びかかる（lunge）/
-   * aim 立ち止まって火の玉を投げる（shooter）/ latched 目の前に吸い付いている（leech）
+   * 段階: move 近づく / windup 溜める（lunge）/ dash 飛びかかる（lunge・diver）/
+   * aim 立ち止まって火の玉を投げる（shooter）/ latched 目の前に吸い付いている（leech）/
+   * armed 爆発までの数を数えている（bomb）/ hover 空で溜めている（diver）/ strike 技を溜めている
    */
-  state: 'move' | 'windup' | 'dash' | 'aim' | 'latched'
+  state: 'move' | 'windup' | 'dash' | 'aim' | 'latched' | 'armed' | 'hover' | 'strike'
+  /** 技の種類（技を仕掛けない影は undefined）・あと何回仕掛けるか・次に技を始める距離 */
+  move?: StrikeMove
+  strikesLeft?: number
+  strikeAt?: number
+  /** 地面からの高さ（m。急降下・火の雨で使う。ふつうは 0） */
+  lift: number
+  /** 出てきたときの距離と高さ（高さを距離に合わせて下げていくため） */
+  startZ: number
+  startLift: number
+  /** この言葉を打っているあいだに間違えたか（間違えずに打ち切ると「完璧」） */
+  missed?: boolean
+  /** 幻影: 偽物か。group は本物の id（本物も自分の id） */
+  decoy?: boolean
+  group?: number
   /** 動きに使う時計（秒） */
   timer: number
   /** あと何個の言葉で倒れるか（tank は 2、ほかは 1） */
@@ -129,7 +188,7 @@ export type GameEvent =
   | { kind: 'miss' }
   | { kind: 'lock'; id: number }
   | { kind: 'release'; id: number }
-  | { kind: 'kill'; id: number; x: number; z: number; enemy: EnemyKind; score: number; golden?: boolean }
+  | { kind: 'kill'; id: number; x: number; z: number; enemy: EnemyKind; score: number; golden?: boolean; perfect?: boolean }
   | { kind: 'hit'; id: number; damage: number }
   | { kind: 'heal' }
   | { kind: 'spawn'; id: number; enemy: EnemyKind }
@@ -156,6 +215,20 @@ export type GameEvent =
   | { kind: 'golden'; id: number }
   | { kind: 'escape'; id: number }
   | { kind: 'fragment'; page: number }
+  | { kind: 'arm'; id: number }
+  | { kind: 'explode'; id: number }
+  | { kind: 'shield-break'; id: number }
+  | { kind: 'flank'; id: number; side: 'left' | 'right' }
+  | { kind: 'dive-warn'; id: number }
+  | { kind: 'dive'; id: number }
+  | { kind: 'decoy'; id: number }
+  | { kind: 'hand'; id: number }
+  | { kind: 'grab'; id: number }
+  | { kind: 'formation'; name: Formation }
+  | { kind: 'boss-phase2'; id: number }
+  | { kind: 'strike-warn'; id: number; move: StrikeMove }
+  | { kind: 'strike'; id: number; move: StrikeMove }
+  | { kind: 'parry'; id: number; move: StrikeMove }
   | { kind: 'clear' }
   | { kind: 'dead' }
 
@@ -221,6 +294,10 @@ export class TypingGame {
   private bossSpawned = false
   private bossAttackTimer = 0
   private bossAttackIndex = 0
+  /** ボスが怒っているか（言葉を半分返したあと） */
+  bossEnraged = false
+  /** 怒ったボスが続けざまに放った 2 つ目の技か */
+  private chainedAttack = false
   /** すでに持っている手記（金色の影を出さない） */
   private ownedPages: Set<number>
 
@@ -274,6 +351,24 @@ export class TypingGame {
     if (e.kind === 'boss') return true
     if (this.darkness > 0 && e !== this.target && e.z > 7) return false
     return this.chapter.reveal <= 0 || e.z <= this.chapter.reveal + this.perks.revealBonus
+  }
+
+  /** 守りの影の結界に入っているか（守りの影より奥で、左右が近い）。結界の中の影は狙えない */
+  isShielded(e: Enemy): boolean {
+    if (e.kind === 'boss' || e.behavior === 'guardian') return false
+    return this.enemies.some((g) => g.behavior === 'guardian' && g !== e && g.z < e.z && Math.abs(g.x - e.x) < GUARD_RANGE_X)
+  }
+
+  /** 時限の影が爆発するまで・足もとの手がつかみかかるまでの残り秒数（どちらでもなければ null） */
+  fuseLeft(e: Enemy): number | null {
+    if (e.state === 'armed') return Math.max(0, BOMB_FUSE * this.timeMul - e.timer)
+    if (e.behavior === 'hand') return Math.max(0, HAND_TIME * this.timeMul - e.timer)
+    return null
+  }
+
+  /** 打ち始めの狙いにできるか（読めて、結界の外） */
+  isTargetable(e: Enemy): boolean {
+    return this.isVisible(e) && !this.isShielded(e)
   }
 
   /** 今の波の設定（終わらない夜は波ごとに作る） */
@@ -331,15 +426,24 @@ export class TypingGame {
     return list.length >= 3 ? list : FAST_WORDS
   }
 
-  private spawn(kind: EnemyKind, events: GameEvent[], opts: { z?: number; x?: number; behavior?: Behavior; page?: number } = {}): Enemy {
+  private spawn(kind: EnemyKind, events: GameEvent[],
+                opts: { z?: number; x?: number; behavior?: Behavior; page?: number; lift?: number; decoy?: boolean; group?: number } = {}): Enemy {
     const behavior: Behavior = kind === 'fox' || kind === 'orb' ? 'walk' : opts.behavior ?? this.pickBehavior()
-    const z = opts.z ?? (behavior === 'ambush' ? AMBUSH_Z : SPAWN_Z)
+    const side = this.rng.next() < 0.5 ? -1 : 1
+    const z = opts.z ?? (behavior === 'ambush' ? AMBUSH_Z
+      : behavior === 'diver' ? DIVE_Z
+        : behavior === 'flanker' ? this.rng.range(13, 18)
+          : behavior === 'hand' ? this.rng.range(4.5, 6.5)
+            : SPAWN_Z)
     const pool = kind === 'fox' ? FAST_WORDS
       : kind === 'orb' ? ORB_WORDS
         : behavior === 'golden' ? GOLDEN_WORDS
-          : behavior === 'ambush' || behavior === 'mini' ? this.shortPool(6)
-            : behavior === 'lunge' || behavior === 'leech' ? this.shortPool(10)
-              : this.pool()
+          : behavior === 'elder' ? (this.endless ? CHAPTERS.slice(0, Math.min(CHAPTERS.length, 1 + Math.floor(this.waveIndex / 2))).flatMap((c) => c.longWords) : this.chapter.longWords)
+          : behavior === 'hand' ? this.shortPool(5)
+            : behavior === 'ambush' || behavior === 'mini' ? this.shortPool(6)
+              : behavior === 'bomb' || behavior === 'diver' || behavior === 'flanker' ? this.shortPool(8)
+                : behavior === 'lunge' || behavior === 'leech' ? this.shortPool(10)
+                  : this.pool()
     const word = this.pickWord(pool)
     const matcher = new RomajiMatcher(word.kana)
     const time = this.travelTime(matcher.length)
@@ -356,19 +460,71 @@ export class TypingGame {
       case 'tank': speed *= 0.72; break // 言葉が 2 つあるぶん遅い
       case 'shooter': speed = (z - SHOOT_Z) / Math.max(1.5, time * 0.35); break // 投げる位置までは早足
       case 'golden': speed = (z - GOLDEN_FLEE_Z) / (time * 0.9); break
+      case 'bomb': speed = (z - BOMB_Z) / Math.max(1.5, time * 0.55); break // 止まる場所までは早足
+      case 'guardian': speed *= 0.75; break
+      case 'flanker': speed = (z - REACH_Z) / Math.max(2.5, time * 0.8); break
+      case 'phantom': speed *= 0.9; break
+      case 'hand': speed = 0; break
     }
     if (kind === 'fox') speed *= FAST_MUL
     if (kind === 'orb') speed = (z - REACH_Z) / (ORB_TIME * this.timeMul)
-    const baseX = opts.x ?? this.rng.range(-3.2, 3.2)
+    const baseX = opts.x ?? (behavior === 'flanker' ? side * FLANK_X : this.rng.range(-3.2, 3.2))
+    const lift = opts.lift ?? (behavior === 'diver' ? DIVE_HEIGHT : 0)
     const e: Enemy = {
       id: this.nextId++, kind, word, matcher, x: baseX, z, speed, baseX, phase: this.rng.range(0, Math.PI * 2),
-      behavior, state: 'move', timer: 0, hp: behavior === 'tank' ? 2 : 1, acted: false, throws: 0, page: opts.page,
+      behavior, state: behavior === 'diver' ? 'hover' : 'move', timer: 0, hp: behavior === 'tank' ? 2 : 1,
+      acted: false, throws: 0, page: opts.page, lift, startZ: z, startLift: lift, decoy: opts.decoy, group: opts.group,
+    }
+    if (kind === 'shade' && !opts.decoy && STRIKERS.has(behavior) && this.rng.next() < this.chapter.strikeChance) {
+      e.move = this.rng.pick(this.chapter.strikeMoves)
+      e.strikesLeft = this.chapter.strikeRepeat
+      e.strikeAt = this.rng.range(STRIKE_MIN_Z + 3, STRIKE_Z)
     }
     this.enemies.push(e)
     events.push({ kind: 'spawn', id: e.id, enemy: kind })
     if (behavior === 'ambush') events.push({ kind: 'ambush', id: e.id })
     if (behavior === 'golden') events.push({ kind: 'golden', id: e.id })
+    if (behavior === 'flanker') events.push({ kind: 'flank', id: e.id, side: baseX < 0 ? 'right' : 'left' }) // 右が −x
+    if (behavior === 'diver') events.push({ kind: 'dive-warn', id: e.id })
+    if (behavior === 'hand') events.push({ kind: 'hand', id: e.id })
+    // 幻影: 本物のまわりに偽物を 2 体
+    if (behavior === 'phantom' && !opts.decoy) {
+      e.group = e.id
+      for (const dx of [-2.2, 2.2]) {
+        this.spawn('shade', events, { z: z + this.rng.range(-1, 1), x: Math.max(-3.8, Math.min(3.8, baseX + dx)), behavior: 'phantom', decoy: true, group: e.id })
+      }
+      // 本物がどれか分からないよう、並び順を混ぜる（いちばん近い影が本物とは限らない）
+      const mine = this.enemies.filter((x) => x.group === e.id)
+      for (const m of mine) m.phase = this.rng.range(0, Math.PI * 2)
+    }
     return e
+  }
+
+  /** 陣形: まとめて仕掛ける。出した影の数を返す */
+  private formation(name: Formation, events: GameEvent[]): number {
+    events.push({ kind: 'formation', name })
+    const lane = this.rng.range(-2, 2)
+    switch (name) {
+      case 'surround':
+        for (const x of [-4, -2, 0, 2, 4]) this.spawn('shade', events, { z: 18 + this.rng.range(0, 2.5), x, behavior: 'walk' })
+        return 5
+      case 'column':
+        for (let i = 0; i < 4; i++) this.spawn('shade', events, { z: 20 + i * 3, x: lane, behavior: 'mini' })
+        return 4
+      case 'pincer':
+        this.spawn('shade', events, { x: -FLANK_X, behavior: 'flanker' })
+        this.spawn('shade', events, { x: FLANK_X, behavior: 'flanker' })
+        return 2
+      case 'rain':
+        for (let i = 0; i < 5; i++) this.spawn('orb', events, { z: 12 + i * 2.2, x: this.rng.range(-3.5, 3.5), lift: RAIN_HEIGHT })
+        return 3
+      case 'rush':
+        for (const x of [-3, 0, 3]) this.spawn('shade', events, { z: 19, x, behavior: 'lunge' })
+        return 3
+      case 'hands':
+        for (const x of [-2.5, 0, 2.5]) this.spawn('shade', events, { x, behavior: 'hand' })
+        return 3
+    }
   }
 
   /** 影を 1 体ぶん動かす（動き方ごと）。攻撃もここで出す */
@@ -376,6 +532,8 @@ export class TypingGame {
     e.timer += dt
     if (e.kind === 'boss' || e.kind === 'orb') {
       e.z -= e.speed * dt
+      // 火の雨: 近づくほど低く降りてくる
+      if (e.startLift > 0) e.lift = e.startLift * Math.max(0, (e.z - REACH_Z) / Math.max(1, e.startZ - REACH_Z))
       return
     }
     if (e.state === 'latched') {
@@ -385,6 +543,42 @@ export class TypingGame {
         e.timer = 0
         events.push({ kind: 'drain', id: e.id })
         this.loseOil(1, e.id, events)
+      }
+      return
+    }
+    // 技: 決めた距離まで来たら足を止めて溜め、当てたら跳び退く（同時に技を溜める影は 1 体まで）
+    if (e.move && (e.strikesLeft ?? 0) > 0 && e.state === 'move' && e.strikeAt !== undefined && e.z <= e.strikeAt
+        && !this.enemies.some((x) => x.state === 'strike')) {
+      e.state = 'strike'
+      e.timer = 0
+      e.startLift = e.lift
+      events.push({ kind: 'strike-warn', id: e.id, move: e.move })
+    }
+    if (e.state === 'strike' && e.move) {
+      const k = Math.min(1, e.timer / (STRIKE_WINDUP * this.timeMul))
+      // 跳びかかり: 高く跳び上がりながら少し前へ / 叩きつけ: その場で伸び上がる
+      if (e.move === 'leap') {
+        e.lift = Math.sin(k * Math.PI) * 3
+        e.z -= dt * 2.5
+      } else if (e.move === 'slam') {
+        e.lift = k < 0.8 ? k * 2.5 : (1 - k) * 12
+      } else {
+        e.z += dt * 0.8 // のけぞって力を溜める
+      }
+      if (k >= 1) {
+        e.strikesLeft = (e.strikesLeft ?? 1) - 1
+        e.state = 'move'
+        e.lift = 0
+        events.push({ kind: 'strike', id: e.id, move: e.move })
+        if (e.move === 'volley') {
+          // 一斉射撃: 火の玉を 3 つ、扇状に（打ち落とす）
+          for (const dx of [-2, 0, 2]) this.spawn('orb', events, { z: e.z - 0.5, x: Math.max(-3.8, Math.min(3.8, e.x + dx)) })
+        } else {
+          e.z = Math.min(SPAWN_Z, e.z + STRIKE_RECOIL)
+          this.loseOil(1, e.id, events)
+        }
+        // もう一度仕掛けるなら、また少し近づいてから
+        if ((e.strikesLeft ?? 0) > 0) e.strikeAt = Math.max(STRIKE_MIN_Z, e.z - this.rng.range(2, 4))
       }
       return
     }
@@ -479,6 +673,58 @@ export class TypingGame {
           }
         }
         break
+      case 'bomb':
+        if (e.state === 'move' && e.z <= BOMB_Z) {
+          e.state = 'armed'
+          e.timer = 0
+          events.push({ kind: 'arm', id: e.id })
+        }
+        if (e.state === 'armed') {
+          v = 0
+          swayAmp *= 0.2
+          if (e.timer >= BOMB_FUSE * this.timeMul) {
+            events.push({ kind: 'explode', id: e.id })
+            this.remove(e)
+            this.loseOil(BOMB_DAMAGE, e.id, events)
+            return
+          }
+        }
+        break
+      case 'guardian':
+        swayAmp *= 0.3
+        break
+      case 'flanker':
+        // 横から、道のまんなかへ寄りながら迫る
+        e.baseX += (Math.sign(e.baseX) * 1.2 - e.baseX) * Math.min(1, dt * 0.9)
+        swayAmp = 0
+        break
+      case 'diver':
+        if (e.state === 'hover') {
+          v = 0
+          swayAmp = 0.5
+          if (e.timer >= DIVE_HOVER * this.timeMul) {
+            e.state = 'dash'
+            events.push({ kind: 'dive', id: e.id })
+          }
+        } else {
+          v = DIVE_SPEED / Math.max(0.75, this.timeMul)
+          swayAmp = 0
+          e.lift = e.startLift * Math.max(0, (e.z - REACH_Z) / Math.max(1, e.startZ - REACH_Z))
+        }
+        break
+      case 'hand':
+        v = 0
+        swayAmp = 0
+        if (e.timer >= HAND_TIME * this.timeMul) {
+          events.push({ kind: 'grab', id: e.id })
+          this.remove(e)
+          this.loseOil(1, e.id, events)
+          return
+        }
+        break
+      case 'mirror':
+        swayAmp *= 1.5
+        break
       case 'mimic':
         if (!e.acted && e.z <= MIMIC_Z) {
           e.acted = true
@@ -508,7 +754,7 @@ export class TypingGame {
     const e: Enemy = {
       id: this.nextId++, kind: 'boss', word, matcher: new RomajiMatcher(word.kana),
       x: 0, z: BOSS_Z, speed: 0, baseX: 0, phase: 0, phrases: def.phrases, phraseIndex: 0,
-      behavior: 'walk', state: 'move', timer: 0, hp: def.phrases.length, acted: false, throws: 0,
+      behavior: 'walk', state: 'move', timer: 0, hp: def.phrases.length, acted: false, throws: 0, lift: 0, startZ: BOSS_Z, startLift: 0,
     }
     e.speed = this.bossSpeed(e)
     this.enemies.push(e)
@@ -547,9 +793,41 @@ export class TypingGame {
         case 'summon':
           if (this.enemies.length < 5) for (let i = 0; i < 2; i++) this.spawn('shade', events, {})
           break
+        case 'rain':
+          for (let i = 0; i < 5; i++) this.spawn('orb', events, { z: 12 + i * 2.2, x: this.rng.range(-3.5, 3.5), lift: RAIN_HEIGHT })
+          break
+        case 'eclipse': this.darkness = INK_TIME * 1.5; break
+        case 'hands':
+          for (const x of [-2.5, 0, 2.5]) this.spawn('shade', events, { x, behavior: 'hand' })
+          break
+        case 'phantoms': this.spawn('shade', events, { z: 18, behavior: 'phantom' }); break
+        case 'bombs':
+          for (const x of [-2.2, 2.2]) this.spawn('shade', events, { z: 15, x, behavior: 'bomb' })
+          break
+        case 'flank':
+          this.spawn('shade', events, { x: -FLANK_X, behavior: 'flanker' })
+          this.spawn('shade', events, { x: FLANK_X, behavior: 'flanker' })
+          break
+        case 'rush':
+          for (const x of [-3, 0, 3]) this.spawn('shade', events, { z: 16, x, behavior: 'lunge' })
+          break
       }
-      this.bossAttackTimer = def.attackEvery * this.timeMul
+      // 怒ったボスは間隔が短く、溜めた直後にもうひとつ放つ
+      this.bossAttackTimer = def.attackEvery * this.timeMul * (this.bossEnraged ? ENRAGE_MUL : 1)
+      if (this.bossEnraged && !this.chainedAttack) {
+        this.chainedAttack = true
+        this.bossAttackTimer = 0.9
+      } else {
+        this.chainedAttack = false
+      }
       return
+    }
+    // 言葉を半分返すと怒る
+    const half = Math.ceil((boss.phrases?.length ?? 2) / 2)
+    if (!this.bossEnraged && (boss.phraseIndex ?? 0) >= half) {
+      this.bossEnraged = true
+      this.bossAttackTimer = Math.min(this.bossAttackTimer, 1.5)
+      events.push({ kind: 'boss-phase2', id: boss.id })
     }
     this.bossAttackTimer -= dt
     if (this.bossAttackTimer <= 0 && def.attacks.length) {
@@ -582,13 +860,17 @@ export class TypingGame {
         this.spawnTimer -= dt
         if (this.spawnTimer <= 0 || alive === 0) {
           const spot = this.chapter.fragments.find((f) => f.wave === this.waveIndex && f.at === this.spawned)
+          const left = wave.count - this.spawned
           if (spot && !this.ownedPages.has(spot.page) && !this.fragmentsFound.includes(spot.page)) {
             this.spawn('shade', events, { behavior: 'golden', page: spot.page })
+            this.spawned++
+          } else if (this.chapter.formations.length && left >= 3 && alive <= 1 && this.rng.next() < this.chapter.formationChance) {
+            this.spawned += this.formation(this.rng.pick(this.chapter.formations), events)
           } else {
             const fast = this.rng.next() < this.chapter.fastChance
             this.spawn(fast ? 'fox' : 'shade', events)
+            this.spawned++
           }
-          this.spawned++
           this.spawnTimer = wave.interval
           if (!this.midAnnounced && this.spawned >= Math.ceil(wave.count / 2)) {
             this.midAnnounced = true
@@ -620,7 +902,7 @@ export class TypingGame {
       if (!this.enemies.includes(e)) continue
       this.move(e, dt, events)
       if (this.over) break
-      if (e.state === 'latched') continue
+      if (!this.enemies.includes(e) || e.state === 'latched') continue
       if (e.behavior === 'golden' && e.z <= GOLDEN_FLEE_Z) {
         // 金色の影は襲わずに逃げていく（手記は手に入らない）
         this.remove(e)
@@ -685,7 +967,7 @@ export class TypingGame {
 
     let t = this.target
     if (!t) {
-      const cands = this.enemies.filter((e) => this.isVisible(e) && e.matcher.accepts(ch)).sort((a, b) => a.z - b.z)
+      const cands = this.enemies.filter((e) => this.isTargetable(e) && e.matcher.accepts(ch)).sort((a, b) => a.z - b.z)
       t = cands[0] ?? null
       if (t) {
         this.target = t
@@ -693,6 +975,7 @@ export class TypingGame {
       }
     }
     if (!t || !t.matcher.key(ch)) {
+      if (t) t.missed = true
       this.combo = 0
       this.stats.misses++
       events.push({ kind: 'miss' })
@@ -740,6 +1023,7 @@ export class TypingGame {
       this.enemies = []
       this.target = null
       this.bossCharging = null
+      this.bossEnraged = false
       this.darkness = 0
       this.guideHidden = 0
       return
@@ -755,13 +1039,34 @@ export class TypingGame {
       events.push({ kind: 'armor', id: t.id })
       return
     }
+    // 幻影の偽物: 消えて、本物が詰め寄ってくる
+    if (t.decoy) {
+      events.push({ kind: 'decoy', id: t.id })
+      this.remove(t)
+      const real = this.enemies.find((e) => e.id === t.group)
+      if (real) real.z = Math.max(REACH_Z + 1.5, real.z - PHANTOM_LUNGE)
+      return
+    }
+    // 技を溜めているあいだに倒した（見切り）
+    if (t.state === 'strike' && t.move) {
+      events.push({ kind: 'parry', id: t.id, move: t.move })
+      this.score += Math.round(150 * mul)
+    }
     // 遠くで倒すほど少し多くもらえる。火の玉は少しだけ、金色の影は多め
     const gain = t.kind === 'orb' ? Math.round(20 * mul)
       : Math.round((40 * t.word.kana.length + t.z * 4 + (t.behavior === 'golden' ? 500 : 0)) * mul)
     this.score += gain
     if (t.kind !== 'orb') this.stats.kills++
-    events.push({ kind: 'kill', id: t.id, x: t.x, z: t.z, enemy: t.kind, score: gain, golden: t.behavior === 'golden' })
+    events.push({ kind: 'kill', id: t.id, x: t.x, z: t.z, enemy: t.kind, score: gain, golden: t.behavior === 'golden', perfect: !t.missed && t.kind !== 'orb' })
     this.remove(t)
+    // 幻影の本物を倒すと、偽物もまとめて消える
+    if (t.behavior === 'phantom') {
+      for (const e of this.enemies.filter((x) => x.group === t.id)) {
+        events.push({ kind: 'kill', id: e.id, x: e.x, z: e.z, enemy: e.kind, score: 0 })
+        this.remove(e)
+      }
+    }
+    if (t.behavior === 'guardian') events.push({ kind: 'shield-break', id: t.id })
     if (t.behavior === 'golden' && t.page !== undefined) {
       this.fragmentsFound.push(t.page)
       events.push({ kind: 'fragment', page: t.page })

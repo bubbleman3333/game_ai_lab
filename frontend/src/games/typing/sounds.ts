@@ -186,6 +186,102 @@ export const typingSounds = {
   escape() {
     ;[12, 7, 3, 0].forEach((n, i) => sound.tone({ freq: sound.note(10 + n), dur: 0.3, type: 'sine', gain: 0.05, delay: i * 0.08 }))
   },
+  /** 技を溜めている（うなり声が高まる） */
+  strikeWarn() {
+    sound.tone({ freq: 110, to: 220, dur: 1.1, type: 'sawtooth', gain: 0.07 })
+    filteredNoise('bandpass', 500, 1200, 1, 0.08, 3)
+  },
+  /** 技を受けた（技ごとに違う音） */
+  strike(move: string) {
+    switch (move) {
+      case 'claw':
+        for (let i = 0; i < 3; i++) filteredNoise('bandpass', 6000, 1500, 0.12, 0.25, 2, i * 0.06)
+        break
+      case 'bite':
+        sound.tone({ freq: 220, to: 70, dur: 0.15, type: 'square', gain: 0.15 })
+        filteredNoise('lowpass', 2500, 300, 0.2, 0.3, 1, 0.02)
+        break
+      case 'spit':
+        filteredNoise('lowpass', 1800, 400, 0.4, 0.3)
+        sound.tone({ freq: 400, to: 150, dur: 0.3, type: 'sine', gain: 0.08 })
+        break
+      case 'tongue':
+        sound.tone({ freq: 300, to: 900, dur: 0.18, type: 'sine', gain: 0.1 })
+        filteredNoise('lowpass', 1500, 400, 0.2, 0.2, 1, 0.15)
+        break
+      case 'volley':
+        typingSounds.shoot()
+        filteredNoise('bandpass', 300, 2500, 0.3, 0.25, 1, 0.05)
+        break
+      default: // leap / slam
+        sound.tone({ freq: 90, to: 35, dur: 0.6, type: 'sine', gain: 0.35 })
+        filteredNoise('lowpass', 1200, 100, 0.6, 0.4)
+    }
+  },
+  /** 見切り（技を止めた。きんっと澄んだ音） */
+  parry() {
+    ;[24, 31, 36].forEach((n, i) => sound.tone({ freq: sound.note(n), dur: 0.35, type: 'sine', gain: 0.07, delay: i * 0.03 }))
+    filteredNoise('highpass', 7000, 4000, 0.15, 0.15)
+  },
+  /** コンボの節目のほめ言葉（節目が大きいほど華やか） */
+  praise(combo: number) {
+    const notes = combo >= 50 ? [0, 4, 7, 12, 16, 19, 24] : combo >= 30 ? [0, 4, 7, 12, 16] : [0, 7, 12]
+    notes.forEach((n, i) => sound.tone({ freq: sound.note(8 + n), dur: 0.45, type: 'triangle', gain: 0.07, delay: i * 0.05 }))
+    filteredNoise('highpass', 8000, 6000, 0.3, 0.06, 1, 0.05)
+  },
+  /** 時限の影が数え始めた（カチ、カチ） */
+  arm() {
+    for (let i = 0; i < 3; i++) sound.tone({ freq: 1800, dur: 0.03, type: 'square', gain: 0.05, delay: i * 0.25 })
+  },
+  /** 爆発 */
+  explode() {
+    filteredNoise('lowpass', 3000, 100, 1.2, 0.5)
+    sound.tone({ freq: 90, to: 30, dur: 0.9, type: 'sine', gain: 0.35 })
+  },
+  /** 結界が解けた（ガラスが割れる） */
+  shieldBreak() {
+    filteredNoise('highpass', 5000, 2500, 0.4, 0.2, 1)
+    ;[24, 19, 28].forEach((n, i) => sound.tone({ freq: sound.note(n), dur: 0.5, type: 'sine', gain: 0.05, delay: i * 0.04 }))
+  },
+  /** 横から回り込んでくる（風を切る音） */
+  flank() {
+    filteredNoise('bandpass', 600, 3000, 0.45, 0.2, 2)
+  },
+  /** 空で溜めている（甲高く鳴く） */
+  diveWarn() {
+    sound.tone({ freq: 900, to: 1400, dur: 0.5, type: 'sawtooth', gain: 0.05 })
+  },
+  /** 急降下（ひゅーっと落ちてくる） */
+  dive() {
+    sound.tone({ freq: 1500, to: 200, dur: 0.8, type: 'sine', gain: 0.1 })
+    filteredNoise('bandpass', 3000, 500, 0.8, 0.15, 2)
+  },
+  /** 偽物だった（ぽんっと消える） */
+  decoy() {
+    sound.tone({ freq: 600, to: 1200, dur: 0.12, type: 'sine', gain: 0.08 })
+    filteredNoise('highpass', 3000, 2000, 0.15, 0.1)
+  },
+  /** 地面から手が生えた（土を割る音） */
+  handRise() {
+    filteredNoise('lowpass', 800, 150, 0.5, 0.3)
+    sound.tone({ freq: 70, to: 45, dur: 0.4, type: 'sine', gain: 0.2 })
+  },
+  /** 手につかまれた */
+  grab() {
+    filteredNoise('lowpass', 1200, 200, 0.3, 0.35)
+    sound.tone({ freq: 160, to: 60, dur: 0.3, type: 'square', gain: 0.1 })
+  },
+  /** 陣形で仕掛けてきた（ほら貝のような低い合図） */
+  formation() {
+    sound.tone({ freq: 147, to: 155, dur: 1, type: 'sawtooth', gain: 0.1 })
+    sound.tone({ freq: 220, to: 233, dur: 1, type: 'sawtooth', gain: 0.06 })
+  },
+  /** ボスが怒った（地の底からの咆哮） */
+  enrage() {
+    sound.tone({ freq: 60, to: 40, dur: 1.8, type: 'sawtooth', gain: 0.25 })
+    sound.tone({ freq: 180, to: 90, dur: 1.4, type: 'sawtooth', gain: 0.12 })
+    filteredNoise('bandpass', 700, 200, 1.6, 0.35, 1.5)
+  },
   /** 森を歩く足音（1 歩ぶん。落ち葉を踏む） */
   step() {
     filteredNoise('lowpass', 700, 220, 0.08, 0.07)

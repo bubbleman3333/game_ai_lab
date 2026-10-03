@@ -57,10 +57,21 @@ export interface Wave {
 
 /**
  * ボスの攻撃（game.ts）。どれも力を溜めて（boss-charge）から放つ。
- *   orbs 火の玉を続けて投げる / howl 咆哮（打ちかけの言葉が崩れ、ローマ字のお手本が消える）
- *   ink 闇を吐く（しばらく遠くの言葉が見えない）/ quake 地鳴り（影がみな少し近づく）/ summon 子分を呼ぶ
+ *   orbs 火の玉を 3 つ投げる / rain 火の雨（空から 5 つ降ってくる）/ howl 咆哮（打ちかけが崩れ、お手本が消える）
+ *   ink 闇を吐く / eclipse 日蝕（長い闇）/ quake 地鳴り（影がみな近づく）/ summon 子分を呼ぶ
+ *   hands 足もとから手が生える / phantoms 幻影（3 体のうち 1 体だけ本物）/ bombs 時限の影を 2 体
+ *   flank 左右から回り込ませる / rush 3 体が同時に溜めて飛びかかる
  */
-export type BossAttack = 'orbs' | 'howl' | 'ink' | 'quake' | 'summon'
+export type BossAttack =
+  | 'orbs' | 'rain' | 'howl' | 'ink' | 'eclipse' | 'quake' | 'summon'
+  | 'hands' | 'phantoms' | 'bombs' | 'flank' | 'rush'
+
+/**
+ * 陣形（game.ts）。1 体ずつではなく、まとまって仕掛けてくる。
+ *   surround 包囲（5 体が弧を描いて同時に迫る）/ column 行列（小さな影が一列で次々）/ pincer 挟み撃ち（左右から回り込む）
+ *   rain 火の雨（空から火の玉）/ rush 一斉突撃（3 体が同時に溜めて飛びかかる）/ hands 地の手（足もとから 3 本）
+ */
+export type Formation = 'surround' | 'column' | 'pincer' | 'rain' | 'rush' | 'hands'
 
 export interface BossDef {
   name: string
@@ -72,8 +83,10 @@ export interface BossDef {
   reactions: string[]
   /** 使う攻撃（順番に使う） */
   attacks: BossAttack[]
-  /** 何秒ごとに攻撃するか */
+  /** 何秒ごとに攻撃するか（言葉を半分返すと怒って、間隔が短くなる） */
   attackEvery: number
+  /** 言葉を半分返して怒ったときのひとこと */
+  enrage: StoryLine
 }
 
 /** 助け出すと仲間になり、戦いで力を貸してくれる者 */
@@ -102,11 +115,16 @@ export const ALLIES: Record<AllyId, Ally> = {
  *   shooter 途中で止まり、火の玉（orb）を投げてくる / ink 近づくと闇を吐き、しばらく遠くが見えない
  *   howl 近づくと咆哮し、打ちかけの言葉を崩してローマ字のお手本を消す / leech 目の前に吸い付き、油を吸い続ける
  *   caller 途中で仲間を 2 体呼ぶ / mimic 途中で言葉が化けて別の言葉になる
+ *   bomb 途中で止まって数を数え、0 になると爆発する / guardian 結界で後ろの影を守る（先に倒さないと後ろを狙えない）
+ *   flanker 画面の横から回り込んでくる / diver 空で溜めて、上から一気に急降下してくる
+ *   phantom 幻影。3 体のうち 1 体だけ本物（偽物を打つと本物が詰め寄る）/ mirror 札が裏返しで揺れる
+ *   hand 足もとから生える手。数秒でつかみかかる / elder 語り影。長い文章を持って、ゆっくり近づいてくる
  * golden 金色の影。母の手記を持っている。攻撃せず、近づくと逃げる（逃がすと手記は手に入らない）
  */
 export type Behavior =
   | 'walk' | 'creep' | 'hop' | 'lunge' | 'blink' | 'zigzag' | 'ambush' | 'tank' | 'split' | 'mini'
   | 'shooter' | 'ink' | 'howl' | 'leech' | 'caller' | 'mimic' | 'golden'
+  | 'bomb' | 'guardian' | 'flanker' | 'diver' | 'phantom' | 'mirror' | 'hand' | 'elder'
 
 /** 金色の影が出る場所（何番目の波の、何体目か）と、持っている手記の番号（journal.ts） */
 export interface FragmentSpot {
@@ -135,6 +153,8 @@ export interface Chapter {
   /** 波の半ばの声（waves と同じ数） */
   midLines: StoryLine[]
   words: Word[]
+  /** 長い文章（語り影 elder が持っている） */
+  longWords: Word[]
   waves: Wave[]
   boss: BossDef | null
   /** 金色の影（母の手記） */
@@ -150,7 +170,19 @@ export interface Chapter {
   sway: number
   /** どの動きの影が、どれくらいの割合で出るか（重み）。章が進むほど種類が増える */
   behaviors: Partial<Record<Behavior, number>>
+  /** 使う陣形と、影が出るたびに陣形になる割合（0〜1） */
+  formations: Formation[]
+  formationChance: number
+  /** ふつうの影が、近づく途中で足を止めて技を仕掛けてくる割合（0〜1。game.ts の strike） */
+  strikeChance: number
+  /** この章の影が使う技（章ごとに違う技が出てくる） */
+  strikeMoves: StrikeMoveName[]
+  /** 1 体が技を何回まで仕掛けてくるか */
+  strikeRepeat: number
 }
+
+/** 技の種類（game.ts の StrikeMove と同じ） */
+export type StrikeMoveName = 'claw' | 'bite' | 'spit' | 'tongue' | 'leap' | 'slam' | 'volley'
 
 const w = (text: string, kana?: string): Word => ({ text, kana: kana ?? text })
 
@@ -246,6 +278,16 @@ export const CHAPTERS: Chapter[] = [
       w('風の音', 'かぜのおと'), w('青葉', 'あおば'), w('若葉', 'わかば'), w('山百合', 'やまゆり'), w('灯り', 'あかり'),
       w('足もと', 'あしもと'), w('かくれんぼ'), w('ほら穴', 'ほらあな'),
     ],
+    longWords: [
+      w('夜の森には言葉をなくした影が棲む', 'よるのもりにはことばをなくしたかげがすむ'),
+      w('ランタンの灯りが足もとを照らす', 'らんたんのあかりがあしもとをてらす'),
+      w('遠くでふくろうが静かに鳴いている', 'とおくでふくろうがしずかにないている'),
+      w('ホタルを追いかけて森に入った', 'ほたるをおいかけてもりにはいった'),
+      w('落ち葉を踏む音だけが響いている', 'おちばをふむおとだけがひびいている'),
+      w('母さんも、この道を歩いたのだろうか', 'かあさんも、このみちをあるいたのだろうか'),
+      w('夜明けまでに必ず連れて帰る', 'よあけまでにかならずつれてかえる'),
+      w('木の根のあいだに小さな足跡がある', 'きのねのあいだにちいさなあしあとがある'),
+    ],
     waves: [
       { count: 5, interval: 2.4, maxAlive: 2 },
       { count: 7, interval: 2.2, maxAlive: 3 },
@@ -256,12 +298,14 @@ export const CHAPTERS: Chapter[] = [
       appear: { who: '？？？', text: 'こいつだ……！ こいつの根に、捕まっておる……！' },
       phrases: [w('ここはどこ'), w('暗いよ', 'くらいよ'), w('誰かいるの', 'だれかいるの')],
       reactions: ['……ここは……もり……？', '……あかり……あたたかい……', '……いた。だれか、いた……。'],
-      attacks: ['quake', 'summon'],
+      attacks: ['hands', 'quake', 'summon'],
       attackEvery: 8,
+      enrage: { who: '根っこの影', text: '……かえさない……！ だれも、ここから、だすものか……！', kind: 'voice' },
     },
     fragments: [{ wave: 1, at: 3, page: 0 }, { wave: 2, at: 5, page: 1 }],
     baseTime: 6, perChar: 0.75, reveal: 0, fastChance: 0, sway: 0.4,
-    behaviors: { walk: 5, creep: 2, hop: 2, caller: 1 },
+    behaviors: { walk: 5, creep: 2, hop: 2, caller: 1, mirror: 1, hand: 1, elder: 1 },
+    formations: ['column', 'surround'], formationChance: 0.12, strikeChance: 0.6, strikeMoves: ['claw', 'bite', 'leap'], strikeRepeat: 1,
   },
   // ======================================================================== 第二章
   {
@@ -324,6 +368,15 @@ export const CHAPTERS: Chapter[] = [
       w('沼の底', 'ぬまのそこ'), w('にじむ光', 'にじむひかり'), w('見えない道', 'みえないみち'), w('霧雨', 'きりさめ'),
       w('かたつむり'), w('とんぼ'), w('しじみ'),
     ],
+    longWords: [
+      w('霧の向こうで小さな光がまたたいている', 'きりのむこうでちいさなひかりがまたたいている'),
+      w('冷たい水の底に言葉が沈んでいる', 'つめたいみずのそこにことばがしずんでいる'),
+      w('置いていかれた言葉が泣いている', 'おいていかれたことばがないている'),
+      w('足跡は沼のまんなかで途切れていた', 'あしあとはぬまのまんなかでとぎれていた'),
+      w('だれかが名前を呼んでいる気がする', 'だれかがなまえをよんでいるきがする'),
+      w('白い霧が森の音をすべて飲みこんだ', 'しろいきりがもりのおとをすべてのみこんだ'),
+      w('ホタルの子が霧の中で泣いている', 'ほたるのこがきりのなかでないている'),
+    ],
     waves: [
       { count: 6, interval: 2.1, maxAlive: 3 },
       { count: 8, interval: 2.0, maxAlive: 3 },
@@ -342,12 +395,14 @@ export const CHAPTERS: Chapter[] = [
         '……あの子……光の子……いっしょにいてほしかった……',
         '……そうか。霧の向こうにも、朝は来るのか……。',
       ],
-      attacks: ['ink', 'orbs'],
+      attacks: ['phantoms', 'ink', 'rain'],
       attackEvery: 7,
+      enrage: { who: '霧の主', text: '……行かせない……霧の中で、いっしょに迷っていればいい……！', kind: 'voice' },
     },
     fragments: [{ wave: 0, at: 4, page: 2 }, { wave: 2, at: 6, page: 3 }],
     baseTime: 5.4, perChar: 0.6, reveal: 26, fastChance: 0, sway: 0.8,
-    behaviors: { walk: 3, creep: 1, hop: 1, zigzag: 2, blink: 2, mimic: 1, shooter: 2 },
+    behaviors: { walk: 3, creep: 1, hop: 1, zigzag: 2, blink: 2, mimic: 1, shooter: 2, phantom: 2, flanker: 1, mirror: 1, elder: 1.5 },
+    formations: ['pincer', 'column', 'rain'], formationChance: 0.15, strikeChance: 0.7, strikeMoves: ['spit', 'tongue', 'volley', 'claw'], strikeRepeat: 2,
   },
   // ======================================================================== 第三章
   {
@@ -410,6 +465,15 @@ export const CHAPTERS: Chapter[] = [
       w('うろ覚え', 'うろおぼえ'), w('思い出', 'おもいで'), w('待ちぼうけ', 'まちぼうけ'), w('鳥居の影', 'とりいのかげ'),
       w('石灯籠', 'いしどうろう'), w('苔の階段', 'こけのかいだん'), w('忘れられた歌', 'わすれられたうた'),
     ],
+    longWords: [
+      w('鳥居の下で子どもたちが笑っていた', 'とりいのしたでこどもたちがわらっていた'),
+      w('祭りの太鼓が遠くで鳴っている気がする', 'まつりのたいこがとおくでなっているきがする'),
+      w('誰も来なくなった社に風が吹く', 'だれもこなくなったやしろにかぜがふく'),
+      w('名前を呼ばれない神様は眠ってしまう', 'なまえをよばれないかみさまはねむってしまう'),
+      w('苔むした石段を一段ずつのぼる', 'こけむしたいしだんをいちだんずつのぼる'),
+      w('古い帳面の文字は虫に食われていた', 'ふるいちょうめんのもじはむしにくわれていた'),
+      w('百年待っても誰も帰ってこなかった', 'ひゃくねんまってもだれもかえってこなかった'),
+    ],
     waves: [
       { count: 7, interval: 1.9, maxAlive: 3 },
       { count: 9, interval: 1.8, maxAlive: 4 },
@@ -430,12 +494,14 @@ export const CHAPTERS: Chapter[] = [
         '……百年……待った。それでも、待っていた……',
         '……ああ。覚えていてくれ、灯守。それだけでいい。',
       ],
-      attacks: ['orbs', 'howl', 'summon'],
+      attacks: ['rain', 'howl', 'flank', 'bombs'],
       attackEvery: 6.5,
+      enrage: { who: '忘れ神', text: '……祭りは、もう終わったのだ……！ 灯りなど、ひとつ残らず消えてしまえ……！', kind: 'voice' },
     },
     fragments: [{ wave: 0, at: 5, page: 4 }, { wave: 2, at: 4, page: 5 }],
     baseTime: 5, perChar: 0.5, reveal: 0, fastChance: 0.15, sway: 0.6,
-    behaviors: { walk: 2, hop: 1, zigzag: 1, blink: 1, lunge: 2, ambush: 2, shooter: 2, howl: 1, caller: 1 },
+    behaviors: { walk: 2, hop: 1, zigzag: 1, blink: 1, lunge: 2, ambush: 2, shooter: 2, howl: 1, caller: 1, bomb: 2, diver: 2, guardian: 1, elder: 2 },
+    formations: ['rush', 'rain', 'pincer'], formationChance: 0.18, strikeChance: 0.8, strikeMoves: ['claw', 'leap', 'slam', 'volley', 'bite'], strikeRepeat: 2,
   },
   // ======================================================================== 第四章
   {
@@ -503,6 +569,14 @@ export const CHAPTERS: Chapter[] = [
       w('銀の波', 'ぎんのなみ'), w('声を聞かせて', 'こえをきかせて'), w('ここで待ってて', 'ここでまってて'),
       w('青い月影', 'あおいつきかげ'), w('黒く透ける', 'くろくすける'), w('目を覚まして', 'めをさまして'),
     ],
+    longWords: [
+      w('月を映した泉のほとりで妹が眠っている', 'つきをうつしたいずみのほとりでいもうとがねむっている'),
+      w('冷たい指先に少しずつ色が戻っていく', 'つめたいゆびさきにすこしずついろがもどっていく'),
+      w('ひとりぼっちの影はぬくもりを探していた', 'ひとりぼっちのかげはぬくもりをさがしていた'),
+      w('夢の中でお母さんの声がした', 'ゆめのなかでおかあさんのこえがした'),
+      w('もうすぐあの子が来るからがんばってね', 'もうすぐあのこがくるからがんばってね'),
+      w('水面に映る月がゆらゆら揺れている', 'みなもにうつるつきがゆらゆらゆれている'),
+    ],
     waves: [
       { count: 8, interval: 2.1, maxAlive: 4 },
       { count: 10, interval: 2.0, maxAlive: 4 },
@@ -522,12 +596,14 @@ export const CHAPTERS: Chapter[] = [
         '……まぶしい……どうして、そんなに……',
         '……そうか。おまえも、この子をひとりにしたくないのだな……。',
       ],
-      attacks: ['ink', 'orbs', 'summon', 'howl'],
+      attacks: ['eclipse', 'hands', 'phantoms', 'rush'],
       attackEvery: 6,
+      enrage: { who: '月を呑む影', text: '……いやだ……ひとりに、もどりたくない……！ 月ごと、呑みこんでやる……！', kind: 'voice' },
     },
     fragments: [{ wave: 0, at: 5, page: 6 }, { wave: 1, at: 7, page: 7 }],
     baseTime: 4.6, perChar: 0.42, reveal: 0, fastChance: 0.1, sway: 1.6,
-    behaviors: { walk: 2, zigzag: 1, blink: 1, lunge: 1, ambush: 1, tank: 2, split: 2, ink: 2, leech: 2, shooter: 1 },
+    behaviors: { walk: 2, zigzag: 1, blink: 1, lunge: 1, ambush: 1, tank: 2, split: 2, ink: 2, leech: 2, shooter: 1, guardian: 2, bomb: 1, hand: 2, diver: 1, elder: 2.5 },
+    formations: ['surround', 'hands', 'rush'], formationChance: 0.2, strikeChance: 0.85, strikeMoves: ['tongue', 'spit', 'slam', 'volley', 'bite', 'claw'], strikeRepeat: 2,
   },
   // ======================================================================== 終章
   {
@@ -606,6 +682,15 @@ export const CHAPTERS: Chapter[] = [
       w('影は光に還る', 'かげはひかりにかえる'), w('名を取り戻す', 'なをとりもどす'), w('夜明けの風', 'よあけのかぜ'),
       w('母さんの灯', 'かあさんのともしび'), w('十年の夜', 'じゅうねんのよる'), w('ただいまを言おう', 'ただいまをいおう'),
     ],
+    longWords: [
+      w('忘れられたものは闇に溶けて影になる', 'わすれられたものはやみにとけてかげになる'),
+      w('十年のあいだ母さんは灯をともし続けた', 'じゅうねんのあいだかあさんはひをともしつづけた'),
+      w('東の空がゆっくりと白みはじめている', 'ひがしのそらがゆっくりとしらみはじめている'),
+      w('森の名前を呼べば長い夜が終わる', 'もりのなまえをよべばながいよるがおわる'),
+      w('ホタルはみんなこの森から生まれてきた', 'ほたるはみんなこのもりからうまれてきた'),
+      w('言葉を返せば影はもう一度光になる', 'ことばをかえせばかげはもういちどひかりになる'),
+      w('みんなで朝の村へ帰ろう', 'みんなであさのむらへかえろう'),
+    ],
     waves: [
       { count: 7, interval: 2.4, maxAlive: 3 },
       { count: 9, interval: 2.2, maxAlive: 4 },
@@ -627,12 +712,17 @@ export const CHAPTERS: Chapter[] = [
         '……呼べるのか。おまえに。わたしの、名を……',
         '……ああ。……ああ、そうだった……！',
       ],
-      attacks: ['orbs', 'howl', 'ink', 'quake', 'summon'],
+      attacks: ['rain', 'howl', 'eclipse', 'rush', 'bombs', 'flank', 'hands', 'phantoms', 'quake'],
       attackEvery: 5.5,
+      enrage: { who: 'ヨルノヌシ', text: '……やめろ……思い出させるな……！ 忘れたままのほうが、楽だったのだ……！', kind: 'voice' },
     },
     fragments: [{ wave: 0, at: 4, page: 8 }, { wave: 1, at: 6, page: 9 }],
     baseTime: 4.6, perChar: 0.38, reveal: 0, fastChance: 0.1, sway: 1.0,
-    behaviors: { walk: 2, creep: 1, hop: 1, zigzag: 1, blink: 1, lunge: 2, ambush: 1, tank: 1, split: 1, shooter: 2, ink: 1, howl: 1, leech: 2, caller: 1, mimic: 1 },
+    behaviors: {
+      walk: 2, creep: 1, hop: 1, zigzag: 1, blink: 1, lunge: 2, ambush: 1, tank: 1, split: 1, shooter: 2, ink: 1, howl: 1,
+      leech: 2, caller: 1, mimic: 1, bomb: 1, guardian: 1, flanker: 1, diver: 1, phantom: 1, mirror: 1, hand: 1, elder: 3,
+    },
+    formations: ['surround', 'column', 'pincer', 'rain', 'rush', 'hands'], formationChance: 0.22, strikeChance: 0.9, strikeMoves: ['claw', 'bite', 'spit', 'tongue', 'leap', 'slam', 'volley'], strikeRepeat: 2,
   },
 ]
 
@@ -668,6 +758,7 @@ export const ENDLESS: Chapter = {
   waveLines: [],
   midLines: [],
   words: CHAPTERS.flatMap((c) => c.words),
+  longWords: CHAPTERS.flatMap((c) => c.longWords),
   waves: [], // game.ts で波ごとに作る
   boss: null,
   fragments: [],
@@ -675,7 +766,9 @@ export const ENDLESS: Chapter = {
   behaviors: {
     walk: 3, creep: 1, hop: 1, zigzag: 1, blink: 1, lunge: 2, ambush: 2, tank: 1, split: 1,
     shooter: 2, ink: 1, howl: 1, leech: 1, caller: 1, mimic: 1,
+    bomb: 1, guardian: 1, flanker: 1, diver: 1, phantom: 1, mirror: 1, hand: 1, elder: 1.5,
   },
+  formations: ['surround', 'column', 'pincer', 'rain', 'rush', 'hands'], formationChance: 0.2, strikeChance: 0.8, strikeMoves: ['claw', 'bite', 'spit', 'tongue', 'leap', 'slam', 'volley'], strikeRepeat: 2,
 }
 
 export function chapterById(id: string): Chapter | undefined {

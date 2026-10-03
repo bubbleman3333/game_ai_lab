@@ -9,6 +9,7 @@
 //    0 まる影        1 鬼影（角）        2 一つ目          3 猫影（耳・小さい）  4 のっぽ（長い腕）
 //   20 からかさ（跳ねる）21 提灯おばけ（光る） 22 ぬりかべ        23 ろくろ首          24 こだま（白い・穴の目）
 //   25 烏天狗（くちばし・翼）26 くらげ影（光る）27 双子影        28 狐面             29 大蛇
+//   30 地の手（足もとから生える手。手のひらに目）
 // ボス: 10 根っこ / 11 霧の主 / 12 忘れ神（角と白い面）/ 13 月を呑む影（三日月の口）/ 14 夜の主
 //
 // 色は「あらかじめ透明度を掛けた色」で出し、ブレンドも合わせている（輪郭の光を自然に重ねるため）。
@@ -18,7 +19,7 @@ import * as THREE from 'three'
 export const SHAPES = {
   round: 0, oni: 1, oneEye: 2, cat: 3, tall: 4,
   umbrella: 20, lantern: 21, wall: 22, longNeck: 23, kodama: 24,
-  tengu: 25, jelly: 26, twins: 27, foxMask: 28, serpent: 29,
+  tengu: 25, jelly: 26, twins: 27, foxMask: 28, serpent: 29, hand: 30,
   roots: 10, mist: 11, god: 12, moon: 13, lord: 14,
 } as const
 export type ShapeName = keyof typeof SHAPES
@@ -33,13 +34,13 @@ export const NORMAL_SHAPES: ShapeName[] = [
 const EYE_COLORS: Record<ShapeName, number> = {
   round: 0xffe2a0, oni: 0xff7a3a, oneEye: 0x8ff0ff, cat: 0xb8ff6a, tall: 0xe6d0ff,
   umbrella: 0xffd040, lantern: 0xfff0b0, wall: 0xffa060, longNeck: 0xff90c0, kodama: 0xc8ffc8,
-  tengu: 0xffb030, jelly: 0x9fe8ff, twins: 0xffc8ff, foxMask: 0xff4040, serpent: 0xd8ff40,
+  tengu: 0xffb030, jelly: 0x9fe8ff, twins: 0xffc8ff, foxMask: 0xff4040, serpent: 0xd8ff40, hand: 0xff5a5a,
   roots: 0xffb050, mist: 0xbff6ff, god: 0xff3030, moon: 0xffe8a0, lord: 0xff3a2a,
 }
 
 /** 大きさ（ふつうの影は 2.3m 四方の板に描く。それに掛ける） */
 export const SHAPE_SCALE: Partial<Record<ShapeName, number>> = {
-  tall: 1.22, wall: 1.3, longNeck: 1.25, serpent: 1.2, cat: 0.9, kodama: 0.85, jelly: 1.05, mist: 1.18,
+  tall: 1.22, wall: 1.3, longNeck: 1.25, serpent: 1.2, cat: 0.9, kodama: 0.85, jelly: 1.05, mist: 1.18, hand: 0.9,
 }
 
 const VERT = /* glsl */ `
@@ -231,6 +232,18 @@ const FRAG = /* glsl */ `
                 + smoothstep(0.025, 0.0, abs(p.y - 0.2 - abs(p.x) * 0.5)) * step(abs(p.x), 0.18);
       col = mix(col, mix(vec3(0.5, 0.48, 0.44), vec3(0.6, 0.03, 0.03), clamp(red, 0.0, 1.0)), m);
       eyeMode = 4.0;
+    } else if (is(30.0)) {
+      // 地の手: 手首から先が地面から生え、指がわさわさ動く。手のひらに目がひとつ
+      float palm = length((p - vec2(0.0, -0.3)) * vec2(1.0, 0.9)) - 0.28;
+      d = min(palm, seg(p, vec2(0.0, -0.4), vec2(0.0, -1.0), 0.2, 0.22));
+      for (int i = 0; i < 4; i++) {
+        float k = float(i) / 3.0 * 2.0 - 1.0;
+        vec2 base = vec2(k * 0.2, -0.12);
+        vec2 tip = base + vec2(k * 0.12 + sin(t * 3.0 + float(i)) * 0.06, 0.55 - abs(k) * 0.12);
+        d = min(d, seg(p, base, tip, 0.07, 0.035));
+      }
+      d = min(d, seg(p, vec2(-0.26, -0.3), vec2(-0.55, 0.0 + sin(t * 2.5) * 0.05), 0.07, 0.04)); // 親指
+      eyeMode = 1.0; eL = vec2(0.0, -0.3); ew = 0.12;
     } else if (is(29.0)) {
       // 大蛇: うねる胴が、下から頭へ
       d = 1e3;

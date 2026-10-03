@@ -64,7 +64,7 @@ describe('ローマ字の判定', () => {
   })
 
   it('全部の章の言葉がローマ字にできる', () => {
-    const all = [...CHAPTERS.flatMap((c) => [...c.words, ...(c.boss?.phrases ?? [])]), ...FAST_WORDS, ...ENDLESS.words]
+    const all = [...CHAPTERS.flatMap((c) => [...c.words, ...c.longWords, ...(c.boss?.phrases ?? [])]), ...FAST_WORDS, ...ENDLESS.words]
     for (const word of all) {
       expect(() => toChunks(word.kana), word.text).not.toThrow()
       // お手本どおりに打てば打ち切れる
@@ -259,7 +259,7 @@ describe('物語と仲間', () => {
 
 describe('影の動き方', () => {
   /** その動き方の影だけが出る章を作る */
-  const only = (behavior: string) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 } })
+  const only = (behavior: string) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 }, formations: [], fragments: [] })
   const firstEnemy = (g: TypingGame) => {
     for (let i = 0; i < 400 && g.enemies.length === 0; i++) g.update(0.05)
     return g.enemies[0]
@@ -318,7 +318,7 @@ describe('影の動き方', () => {
 })
 
 describe('攻めてくる影とボスの攻撃', () => {
-  const only = (behavior: string, extra: object = {}) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 }, fragments: [], ...extra })
+  const only = (behavior: string, extra: object = {}) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 }, fragments: [], formations: [], ...extra })
   const run = (g: TypingGame, seconds: number, stop?: (kinds: string[]) => boolean) => {
     const kinds: string[] = []
     for (let i = 0; i < seconds * 20 && !g.over; i++) {
@@ -393,11 +393,178 @@ describe('攻めてくる影とボスの攻撃', () => {
 
   it('波の半ばで合図が出る（物語の台詞用）', () => {
     const g = new TypingGame(CHAPTERS[0], 'normal', 28)
-    const kinds = run(g, 30, (k) => k.includes('midwave'))
+    // 何も打たないので、油が尽きないようにしておく
+    const kinds = run(g, 30, (k) => { g.oil = 99; return k.includes('midwave') })
     expect(kinds).toContain('midwave')
   })
 
   it('波の半ばの声も、波と同じ数だけある', () => {
     for (const c of CHAPTERS) expect(c.midLines.length, c.title).toBe(c.waves.length)
+  })
+})
+
+describe('攻撃のバリエーション', () => {
+  const only = (behavior: string, extra: object = {}) => ({
+    ...CHAPTERS[0], behaviors: { [behavior]: 1 }, fragments: [], formations: [], waves: [{ count: 1, interval: 2, maxAlive: 1 }], ...extra,
+  })
+  const run = (g: TypingGame, seconds: number, stop?: (kinds: string[]) => boolean) => {
+    const kinds: string[] = []
+    for (let i = 0; i < seconds * 20 && !g.over; i++) {
+      for (const ev of g.update(0.05)) kinds.push(ev.kind)
+      if (stop?.(kinds)) break
+    }
+    return kinds
+  }
+
+  it('時限の影は止まって数を数え、0 になると爆発して油が 2 減る', () => {
+    const g = new TypingGame(only('bomb'), 'normal', 31)
+    const kinds = run(g, 30, (k) => k.includes('explode'))
+    expect(kinds).toContain('arm')
+    expect(kinds).toContain('explode')
+    expect(g.oil).toBe(MAX_OIL - 2)
+  })
+
+  it('守りの影がいると、後ろの影は狙えない。倒すと結界が解ける', () => {
+    const g = new TypingGame(only('walk', { waves: [{ count: 2, interval: 0.1, maxAlive: 2 }] }), 'normal', 32)
+    run(g, 3, () => g.enemies.length >= 2)
+    const [a, b] = g.enemies
+    a.behavior = 'guardian'
+    a.z = 10
+    a.x = 0
+    b.z = 20
+    b.x = 0.5
+    expect(g.isShielded(b)).toBe(true)
+    expect(g.isTargetable(b)).toBe(false)
+    const kinds: string[] = []
+    for (const ch of a.matcher.rest) for (const ev of g.key(ch)) kinds.push(ev.kind)
+    expect(kinds).toContain('shield-break')
+    expect(g.isShielded(b)).toBe(false)
+  })
+
+  it('幻影は 3 体出て、偽物を打つと本物が詰め寄る。本物を倒すと偽物も消える', () => {
+    const g = new TypingGame(only('phantom'), 'normal', 33)
+    run(g, 3, () => g.enemies.length >= 3)
+    expect(g.enemies).toHaveLength(3)
+    const real = g.enemies.find((e) => !e.decoy)!
+    const fake = g.enemies.find((e) => e.decoy)!
+    const z = real.z
+    const kinds: string[] = []
+    for (const ch of fake.matcher.rest) for (const ev of g.key(ch)) kinds.push(ev.kind)
+    expect(kinds).toContain('decoy')
+    expect(real.z).toBeLessThan(z)
+    for (const ch of real.matcher.rest) g.key(ch)
+    expect(g.enemies).toHaveLength(0)
+  })
+
+  it('足もとの手は近くに現れ、しばらくするとつかみかかる', () => {
+    const g = new TypingGame(only('hand'), 'normal', 34)
+    const kinds = run(g, 10, (k) => k.includes('grab'))
+    expect(kinds).toContain('hand')
+    expect(kinds).toContain('grab')
+    expect(g.oil).toBe(MAX_OIL - 1)
+  })
+
+  it('急降下は空で溜めてから降りてくる。回り込みは画面の横から来る', () => {
+    const g = new TypingGame(only('diver'), 'normal', 35)
+    run(g, 3, () => g.enemies.length > 0)
+    const d = g.enemies[0]
+    expect(d.lift).toBeGreaterThan(5)
+    const kinds = run(g, 10, (k) => k.includes('dive'))
+    expect(kinds).toContain('dive')
+    const g2 = new TypingGame(only('flanker'), 'normal', 36)
+    run(g2, 3, () => g2.enemies.length > 0)
+    expect(Math.abs(g2.enemies[0].x)).toBeGreaterThan(6)
+  })
+
+  it('陣形はまとめて仕掛けてくる', () => {
+    for (const name of ['surround', 'column', 'pincer', 'rain', 'rush', 'hands'] as const) {
+      const g = new TypingGame(only('walk', { formations: [name], formationChance: 1, waves: [{ count: 8, interval: 2, maxAlive: 3 }] }), 'normal', 37)
+      const kinds = run(g, 5, (k) => k.includes('formation'))
+      expect(kinds, name).toContain('formation')
+      expect(g.enemies.length, name).toBeGreaterThanOrEqual(2)
+    }
+  })
+
+  it('ボスは言葉を半分返すと怒り、攻撃が速くなる。どの章のボスも全部の技を使える', () => {
+    for (const chapter of CHAPTERS) {
+      const g = new TypingGame({ ...chapter, waves: [], fragments: [] }, 'easy', 38)
+      run(g, 3, () => g.boss !== null)
+      const boss = g.boss!
+      const half = Math.ceil(boss.phrases!.length / 2)
+      for (let i = 0; i < half; i++) for (const ch of boss.matcher.rest) g.key(ch)
+      const kinds = run(g, 2, (k) => k.includes('boss-phase2'))
+      expect(kinds, chapter.title).toContain('boss-phase2')
+      expect(g.bossEnraged).toBe(true)
+      // 技を一通り放っても、エラーにならない
+      const used = new Set<string>()
+      for (let i = 0; i < 4000 && !g.over && used.size < chapter.boss!.attacks.length; i++) {
+        for (const ev of g.update(0.05)) if (ev.kind === 'boss-attack') used.add(ev.attack)
+        g.oil = 1000 // 技を全部見るまで倒れないように（同じフレームに火の雨がまとめて当たることがある）
+        if (g.boss) g.boss.z = 20
+      }
+      expect(used.size, chapter.title).toBe(chapter.boss!.attacks.length)
+    }
+  })
+})
+
+describe('影の技', () => {
+  const chapter = {
+    ...CHAPTERS[0], behaviors: { walk: 1 }, fragments: [], formations: [], strikeChance: 1, strikeMoves: ['claw' as const], strikeRepeat: 1,
+    waves: [{ count: 1, interval: 2, maxAlive: 1 }],
+  }
+
+  it('足を止めて技を溜め、当てると油が減って跳び退く', () => {
+    const g = new TypingGame(chapter, 'normal', 41)
+    const kinds: string[] = []
+    let zAtStrike = 0
+    for (let i = 0; i < 600 && !kinds.includes('strike'); i++) {
+      for (const ev of g.update(0.05)) {
+        kinds.push(ev.kind)
+        if (ev.kind === 'strike') zAtStrike = g.enemies[0]?.z ?? 0
+      }
+    }
+    expect(kinds).toContain('strike-warn')
+    expect(kinds.indexOf('strike')).toBeGreaterThan(kinds.indexOf('strike-warn'))
+    expect(g.oil).toBe(MAX_OIL - 1)
+    expect(zAtStrike).toBeGreaterThan(8)
+  })
+
+  it('溜めているあいだに打ち切ると、見切りで止められる', () => {
+    const g = new TypingGame(chapter, 'normal', 42)
+    const kinds: string[] = []
+    for (let i = 0; i < 600 && !kinds.includes('strike-warn'); i++) for (const ev of g.update(0.05)) kinds.push(ev.kind)
+    const e = g.enemies[0]
+    for (const ch of e.matcher.rest) for (const ev of g.key(ch)) kinds.push(ev.kind)
+    expect(kinds).toContain('parry')
+    expect(g.oil).toBe(MAX_OIL)
+  })
+})
+
+describe('技の種類', () => {
+  it('一斉射撃は、火の玉を一度に 3 つ飛ばしてくる', () => {
+    const chapter = {
+      ...CHAPTERS[0], behaviors: { walk: 1 }, fragments: [], formations: [], strikeChance: 1, strikeMoves: ['volley' as const], strikeRepeat: 1,
+      waves: [{ count: 1, interval: 2, maxAlive: 1 }],
+    }
+    const g = new TypingGame(chapter, 'normal', 51)
+    const kinds: string[] = []
+    for (let i = 0; i < 600 && !kinds.includes('strike'); i++) for (const ev of g.update(0.05)) kinds.push(ev.kind)
+    expect(g.enemies.filter((e) => e.kind === 'orb')).toHaveLength(3)
+  })
+
+  it('2 回仕掛けてくる章では、跳び退いたあとにもう一度仕掛けてくる', () => {
+    const chapter = {
+      ...CHAPTERS[1], behaviors: { walk: 1 }, fragments: [], formations: [], strikeChance: 1, strikeMoves: ['claw' as const], strikeRepeat: 2,
+      reveal: 0, waves: [{ count: 1, interval: 2, maxAlive: 1 }],
+    }
+    const g = new TypingGame(chapter, 'easy', 52)
+    let strikes = 0
+    for (let i = 0; i < 1200 && strikes < 2 && !g.over; i++) for (const ev of g.update(0.05)) if (ev.kind === 'strike') strikes++
+    expect(strikes).toBe(2)
+  })
+
+  it('章ごとに、使う技が違う', () => {
+    expect(CHAPTERS[0].strikeMoves).not.toEqual(CHAPTERS[1].strikeMoves)
+    for (const c of CHAPTERS) expect(c.strikeMoves.length, c.title).toBeGreaterThan(0)
   })
 })
