@@ -37,6 +37,8 @@ export interface SaveData {
   difficulty: Difficulty
   /** 遊んだ時間（秒。戦っていた時間の合計） */
   playTime: number
+  /** 見つけた母の手記の番号（journal.ts。0 から） */
+  fragments: number[]
   createdAt: number
   updatedAt: number
 }
@@ -45,7 +47,7 @@ export function newSave(difficulty: Difficulty = 'normal'): SaveData {
   const now = Date.now()
   return {
     version: SAVE_VERSION, chapter: 0, part: 'intro', line: 0, cleared: [], best: {},
-    difficulty, playTime: 0, createdAt: now, updatedAt: now,
+    difficulty, playTime: 0, fragments: [], createdAt: now, updatedAt: now,
   }
 }
 
@@ -97,15 +99,19 @@ export function finishPart(s: SaveData): SaveData {
   return s
 }
 
-/** 戦いの結果を記録する。物語の今の章をクリアしたら、終わりの話へ進む */
+/**
+ * 戦いの結果を記録する。物語の今の章をクリアしたら、終わりの話へ進む。
+ * 見つけた手記（fragments）は、負けても残る（金色の影を倒した時点で手に入れたことにする）
+ */
 export function recordResult(s: SaveData, chapterId: string, difficulty: Difficulty, cleared: boolean,
-                             result: Best, seconds: number): SaveData {
+                             result: Best, seconds: number, fragments: readonly number[] = []): SaveData {
   const key = `${chapterId}:${difficulty}`
   const prev = s.best[key]
   // 終わらない夜は「力尽きるまで」でクリアが無いので、力尽きたときの点も記録に残す
   const counts = cleared || chapterId === ENDLESS.id
   const best = counts && (!prev || result.score > prev.score) ? { ...s.best, [key]: result } : s.best
-  let next: SaveData = { ...s, best, playTime: s.playTime + seconds }
+  const pages = [...new Set([...s.fragments, ...fragments])].sort((a, b) => a - b)
+  let next: SaveData = { ...s, best, playTime: s.playTime + seconds, fragments: pages }
   if (cleared && !next.cleared.includes(chapterId)) next = { ...next, cleared: [...next.cleared, chapterId] }
   const cur = currentChapter(s)
   if (cleared && cur?.id === chapterId && s.part === 'play') next = { ...next, part: 'outro', line: 0 }
@@ -191,6 +197,7 @@ function migrate(r: Record<string, unknown>): SaveData {
     best: r.best && typeof r.best === 'object' ? (r.best as Record<string, Best>) : {},
     difficulty,
     playTime: num(r.playTime, 0),
+    fragments: Array.isArray(r.fragments) ? (r.fragments as unknown[]).filter((x): x is number => typeof x === 'number') : [],
     createdAt: num(r.createdAt, base.createdAt),
     updatedAt: num(r.updatedAt, base.updatedAt),
   }

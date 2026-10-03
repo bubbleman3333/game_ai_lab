@@ -50,12 +50,17 @@ describe('ローマ字の判定', () => {
     expect(m.rest).toBe('ori')
   })
 
-  it('お手本は打ち始めた書き方に合わせて変わる', () => {
+  it('お手本は打つ数がいちばん少ない書き方で、打ち始めた書き方に合わせて変わる', () => {
+    expect(new RomajiMatcher('なつのよる').rest).toBe('natunoyoru')
+    expect(new RomajiMatcher('ちいさなこえ').rest).toBe('tiisanakoe')
+    expect(new RomajiMatcher('しゃしん').rest).toBe('shasinn') // 同じ長さなら sha（表の先頭）
+    expect(new RomajiMatcher('きんぎょ').rest).toBe('kingyo') // 子音の前の「ん」は n 1 つ
+    expect(new RomajiMatcher('はっぱ').rest).toBe('happa')
     const m = new RomajiMatcher('しずく')
-    expect(m.rest).toBe('shizuku')
+    expect(m.rest).toBe('sizuku')
     m.key('s')
-    m.key('i')
-    expect(m.typed + m.rest).toBe('sizuku')
+    m.key('h')
+    expect(m.typed + m.rest).toBe('shizuku')
   })
 
   it('全部の章の言葉がローマ字にできる', () => {
@@ -309,5 +314,90 @@ describe('影の動き方', () => {
     for (let i = 0; i < 200 && !blinked; i++) for (const ev of g.update(0.05)) if (ev.kind === 'blink') blinked = true
     expect(blinked).toBe(true)
     expect(e.z).toBeLessThan(30)
+  })
+})
+
+describe('攻めてくる影とボスの攻撃', () => {
+  const only = (behavior: string, extra: object = {}) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 }, fragments: [], ...extra })
+  const run = (g: TypingGame, seconds: number, stop?: (kinds: string[]) => boolean) => {
+    const kinds: string[] = []
+    for (let i = 0; i < seconds * 20 && !g.over; i++) {
+      for (const ev of g.update(0.05)) kinds.push(ev.kind)
+      if (stop?.(kinds)) break
+    }
+    return kinds
+  }
+
+  it('火の玉を投げる影は、止まって火の玉を投げてくる。火の玉も打ち落とせる', () => {
+    const g = new TypingGame(only('shooter'), 'normal', 21)
+    const kinds = run(g, 20, (k) => k.includes('shoot'))
+    expect(kinds).toContain('shoot')
+    const orb = g.enemies.find((e) => e.kind === 'orb')!
+    expect(orb).toBeTruthy()
+    for (const ch of orb.matcher.rest) g.key(ch)
+    expect(g.enemies).not.toContain(orb)
+  })
+
+  it('闇を吐く影のあとは、遠くの影が狙えない', () => {
+    const g = new TypingGame(only('ink'), 'normal', 22)
+    run(g, 30, (k) => k.includes('ink'))
+    expect(g.darkness).toBeGreaterThan(0)
+    const far = { ...g.enemies[0], z: 20 }
+    expect(g.isVisible(far)).toBe(false)
+  })
+
+  it('咆哮で打ちかけの言葉が崩れ、お手本が消える', () => {
+    const g = new TypingGame(only('howl'), 'normal', 23)
+    for (let i = 0; i < 400 && g.enemies.length === 0; i++) g.update(0.05)
+    const e = g.enemies[0]
+    g.key(e.matcher.rest[0])
+    expect(e.matcher.typed.length).toBe(1)
+    run(g, 30, (k) => k.includes('howl'))
+    expect(e.matcher.typed).toBe('')
+    expect(g.guideHidden).toBeGreaterThan(0)
+  })
+
+  it('吸い付く影は、目の前に張りついて油を吸い続ける', () => {
+    const g = new TypingGame(only('leech', { waves: [{ count: 1, interval: 2, maxAlive: 1 }] }), 'normal', 24)
+    const kinds = run(g, 40, (k) => k.filter((x) => x === 'drain').length >= 2)
+    expect(kinds).toContain('latch')
+    expect(kinds.filter((x) => x === 'drain').length).toBe(2)
+    expect(g.oil).toBe(MAX_OIL - 3)
+  })
+
+  it('金色の影を倒すと母の手記が手に入り、逃がすと手に入らない', () => {
+    const chapter = { ...CHAPTERS[0], behaviors: { walk: 1 }, fragments: [{ wave: 0, at: 0, page: 4 }] }
+    const g = new TypingGame(chapter, 'normal', 25)
+    const kinds = run(g, 10, (k) => k.includes('golden'))
+    expect(kinds).toContain('golden')
+    const gold = g.enemies.find((e) => e.behavior === 'golden')!
+    for (const ch of gold.matcher.rest) g.key(ch)
+    expect(g.fragmentsFound).toEqual([4])
+    // すでに持っている手記は、もう出ない
+    const g2 = new TypingGame(chapter, 'normal', 25, NO_PERKS, [4])
+    expect(run(g2, 10)).not.toContain('golden')
+    // 逃がした場合
+    const g3 = new TypingGame(chapter, 'normal', 26)
+    expect(run(g3, 40, (k) => k.includes('escape'))).toContain('escape')
+    expect(g3.fragmentsFound).toEqual([])
+  })
+
+  it('ボスは力を溜めてから攻撃してくる', () => {
+    for (const chapter of CHAPTERS) {
+      const g = new TypingGame({ ...chapter, waves: [], fragments: [] }, 'normal', 27)
+      const kinds = run(g, 30, (k) => k.includes('boss-attack'))
+      expect(kinds.indexOf('boss-charge'), chapter.title).toBeGreaterThan(-1)
+      expect(kinds.indexOf('boss-attack'), chapter.title).toBeGreaterThan(kinds.indexOf('boss-charge'))
+    }
+  })
+
+  it('波の半ばで合図が出る（物語の台詞用）', () => {
+    const g = new TypingGame(CHAPTERS[0], 'normal', 28)
+    const kinds = run(g, 30, (k) => k.includes('midwave'))
+    expect(kinds).toContain('midwave')
+  })
+
+  it('波の半ばの声も、波と同じ数だけある', () => {
+    for (const c of CHAPTERS) expect(c.midLines.length, c.title).toBe(c.waves.length)
   })
 })

@@ -16,6 +16,7 @@ import { StoryView } from '../components/StoryView'
 import { type Flash, TypingHud } from '../components/TypingHud'
 import { themeFor } from '../scene/themes'
 import { ALLIES, type AllyId, CHAPTERS, type Chapter, ENDLESS, type StoryLine } from '../sim/chapters'
+import { JOURNAL } from '../sim/journal'
 import { DIFFICULTIES, type Difficulty, type GameEvent, type Perks, rankOf, TypingGame } from '../sim/game'
 import {
   advanceLine, alliesOf, type Best, currentChapter, perksOf, deleteSlot, exportSave, finishPart, loadSlots, newSave, parseSave,
@@ -31,7 +32,7 @@ type View =
   | { k: 'hub' }
   | { k: 'story' }
   | { k: 'play'; chapter: Chapter; story: boolean; run: number }
-  | { k: 'result'; chapter: Chapter; story: boolean; cleared: boolean; best: Best; record: boolean; snap: Snapshot; maxCombo: number; kills: number; damage: number }
+  | { k: 'result'; chapter: Chapter; story: boolean; cleared: boolean; best: Best; record: boolean; snap: Snapshot; maxCombo: number; kills: number; damage: number; pages: number[] }
 
 function formatTime(sec: number): string {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60)
@@ -153,6 +154,7 @@ export function TypingPage() {
         difficulty={save.difficulty}
         perks={perksOf(save)}
         allies={alliesOf(save)}
+        ownedPages={save.fragments}
         onQuit={() => setView({ k: 'hub' })}
         onFinish={(game) => {
           const snap = snapshotOf(game)
@@ -162,10 +164,11 @@ export function TypingPage() {
           const prev = save.best[key]
           const counts = cleared || view.chapter.id === ENDLESS.id
           const record = counts && (!prev || best.score > prev.score)
-          persist(recordResult(save, view.chapter.id, save.difficulty, cleared, best, game.time))
+          persist(recordResult(save, view.chapter.id, save.difficulty, cleared, best, game.time, game.fragmentsFound))
           setView({
             k: 'result', chapter: view.chapter, story: view.story, cleared, best, record, snap,
             maxCombo: game.stats.maxCombo, kills: game.stats.kills, damage: game.stats.damage,
+            pages: game.fragmentsFound,
           })
         }}
       />
@@ -307,6 +310,69 @@ function SlotScreen({ slots, onOpen, onNew, onDelete, onImport }: {
 
 const ALLY_ICON: Record<AllyId, string> = { kuro: '🦉', ruri: '✦', bell: '🔔', mio: '♪' }
 
+/**
+ * 森の地図: 村から丘までの道のりに、今いる場所と、夜明けまでの残りを出す（何をしているのかが一目でわかるように）
+ */
+function ForestMap({ save }: { save: SaveData }) {
+  const stops = [{ id: 'village', name: '村' }, ...CHAPTERS.map((c) => ({ id: c.id, name: c.title }))]
+  const here = Math.min(save.chapter + 1, stops.length - 1)
+  const done = storyFinished(save)
+  const left = Math.max(0, 4 - save.chapter)
+  return (
+    <section className="card typing-map">
+      <h2>夜の森の地図</h2>
+      <p className="typing-map-goal">
+        {done ? '夜は明けた。ミオと母さんを連れて、村へ帰った。'
+          : save.chapter >= 3 ? '目的: 森のいちばん奥で夜の主を鎮め、ミオと母さんを連れて帰る'
+            : '目的: 夜明けまでに、森にさらわれた妹ミオを連れ戻す'}
+      </p>
+      <ol className="typing-map-path">
+        {stops.map((s, i) => (
+          <li key={s.id} className={done || i < here ? 'passed' : i === here ? 'here' : ''}>
+            <span className="typing-map-dot" aria-hidden />
+            <span className="typing-map-name">{i <= here || done ? s.name : '？？？'}</span>
+            {i === here && !done && <span className="typing-map-you">いまここ</span>}
+          </li>
+        ))}
+      </ol>
+      {!done && <p className="muted small">夜明けまで、あと{left > 0 ? ` ${left} 刻` : 'わずか'}。</p>}
+    </section>
+  )
+}
+
+/** 母の手記: 見つけたページを読める。まだのページは、どの章の金色の影が持っているかだけ出す */
+function JournalSection({ save }: { save: SaveData }) {
+  const [open, setOpen] = useState<number | null>(null)
+  const page = open !== null ? JOURNAL[open] : null
+  return (
+    <section className="card">
+      <h2>母の手記 <small className="muted">{save.fragments.length} / {JOURNAL.length}</small></h2>
+      <p className="muted small">戦いの中に現れる金色の影が、母さんの手記を持っている。近づくと逃げるので、急いで唱えよう。</p>
+      <div className="typing-journal">
+        {JOURNAL.map((p, i) => {
+          const have = save.fragments.includes(i)
+          const where = CHAPTERS.find((c) => c.fragments.some((f) => f.page === i))
+          return (
+            <button key={i} type="button" className={have ? 'typing-journal-page have' : 'typing-journal-page'}
+                    disabled={!have} onClick={() => setOpen(i)}>
+              {have ? p.title : `${where?.number ?? ''}の金色の影`}
+            </button>
+          )
+        })}
+      </div>
+      {page && (
+        <div className="typing-journal-read" onClick={() => setOpen(null)}>
+          <article className="card" onClick={(e) => e.stopPropagation()}>
+            <h3>{page.title}</h3>
+            {page.body.map((t, i) => <p key={i}>{t}</p>)}
+            <button type="button" className="ghost" onClick={() => setOpen(null)}>閉じる</button>
+          </article>
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ==================================================================== 拠点
 function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBack }: {
   save: SaveData
@@ -345,6 +411,8 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
         )}
       </section>
 
+      <ForestMap save={save} />
+
       <section className="card">
         <h2>仲間とお守り</h2>
         <div className="typing-allies">
@@ -362,6 +430,8 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
           })}
         </div>
       </section>
+
+      <JournalSection save={save} />
 
       <section className="card">
         <h2>難しさ</h2>
@@ -433,16 +503,17 @@ const CHEERS: { ally: AllyId | null; line: StoryLine }[] = [
   { ally: null, line: { text: '油が残りわずかだ。……落ち着いて、一つずつ。' } },
 ]
 
-function PlayScreen({ chapter, difficulty, perks, allies, onQuit, onFinish }: {
+function PlayScreen({ chapter, difficulty, perks, allies, ownedPages, onQuit, onFinish }: {
   chapter: Chapter
   difficulty: Difficulty
   perks: Perks
   allies: AllyId[]
+  ownedPages: number[]
   onQuit: () => void
   onFinish: (game: TypingGame) => void
 }) {
   // 戦いは最初の 1 回だけ作る（perks は描き直すたびに新しい値になるので、useMemo の依存にすると作り直されてしまう）
-  const [game] = useState(() => new TypingGame(chapter, difficulty, Date.now(), perks))
+  const [game] = useState(() => new TypingGame(chapter, difficulty, Date.now(), perks, ownedPages))
   /** 戦いの最中に出る台詞（波ごとの声・ボスの本音・仲間の声） */
   const [talk, setTalk] = useState<(StoryLine & { id: number }) | null>(null)
   const cheered = useRef(false)
@@ -490,6 +561,26 @@ function PlayScreen({ chapter, difficulty, perks, allies, onQuit, onFinish }: {
         case 'ambush': setFlash({ text: '茂みから飛び出してきた！', kind: 'bad', id }); break
         case 'armor': setFlash({ text: '殻が割れた！ もうひとつ！', kind: 'good', id }); break
         case 'split': setFlash({ text: '影が分かれた！', kind: 'info', id }); break
+        case 'midwave': {
+          const line = chapter.midLines[ev.index]
+          if (line) setTalk({ ...line, id })
+          break
+        }
+        case 'shoot': setFlash({ text: '火の玉が飛んでくる！ 打ち落とせ！', kind: 'bad', id }); break
+        case 'ink': setFlash({ text: '闇を吐かれた！ 遠くが見えない！', kind: 'bad', id }); break
+        case 'howl': setFlash({ text: '咆哮！ 書き付けが読めない！ かなを見て打て！', kind: 'bad', id }); break
+        case 'latch': setFlash({ text: '吸い付かれた！ 早く引きはがせ！', kind: 'bad', id }); break
+        case 'drain': setHurt(id); setFlash({ text: '油を吸われている！', kind: 'bad', id }); break
+        case 'call': setFlash({ text: '影が仲間を呼んだ！', kind: 'bad', id }); break
+        case 'mimic': setFlash({ text: '言葉が化けた！', kind: 'info', id }); break
+        case 'golden': setTalk({ text: '金色の影だ……！ 何かを抱えている。逃がすな！', id }); break
+        case 'fragment': setFlash({ text: `母の手記「${JOURNAL[ev.page]?.title ?? ''}」を見つけた！`, kind: 'big', id }); break
+        case 'escape': setFlash({ text: '金色の影に逃げられた……', kind: 'info', id }); break
+        case 'boss-charge': {
+          const names = { orbs: '火の玉', howl: '咆哮', ink: '闇', quake: '地鳴り', summon: '呼び寄せ' } as const
+          setFlash({ text: `${chapter.boss?.name ?? 'ボス'}が力を溜めている……（${names[ev.attack]}）`, kind: 'bad', id })
+          break
+        }
         case 'heal': setFlash({ text: allies.includes('mio') ? 'ミオの歌が灯りを強めた（油 +1）' : 'ホタルが油を運んできた（油 +1）', kind: 'good', id }); break
         case 'hit': {
           setHurt(id)
@@ -641,6 +732,9 @@ ${shareUrl}`)
           <div><dt>減った油</dt><dd className="mono">{view.damage}</dd></div>
           <div><dt>時間</dt><dd className="mono">{Math.floor(snap.time / 60)}:{String(Math.floor(snap.time % 60)).padStart(2, '0')}</dd></div>
         </dl>
+        {view.pages.length > 0 && (
+          <p className="typing-result-pages">母の手記を見つけた: {view.pages.map((p) => `「${JOURNAL[p]?.title}」`).join('')}（拠点で読める）</p>
+        )}
         {!cleared && !endless && <p className="muted small">油は 30 打ミス無しで 1 戻る。急がず正確に打つのが近道。難しさを下げることもできる。</p>}
         <div className="typing-share">
           <a className="typing-share-x" href={tweet} target="_blank" rel="noopener noreferrer">𝕏 で結果をシェア</a>

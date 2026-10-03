@@ -32,6 +32,13 @@ export interface Snapshot {
   time: number
   kpm: number
   accuracy: number
+  /** 闇の残り（秒）・お手本が消えている残り（秒） */
+  darkness: number
+  guideHidden: number
+  /** ボスが溜めている攻撃 */
+  bossCharging: string | null
+  /** 目の前に吸い付いている影の数 */
+  latched: number
 }
 
 export function snapshotOf(game: TypingGame): Snapshot {
@@ -41,6 +48,8 @@ export function snapshotOf(game: TypingGame): Snapshot {
     wave: game.waveIndex, totalWaves: game.totalWaves,
     boss: b && b.phrases ? { name: game.chapter.boss?.name ?? '', left: b.phrases.length - (b.phraseIndex ?? 0), total: b.phrases.length } : null,
     result: game.result, time: game.time, kpm: game.kpm, accuracy: game.accuracy,
+    darkness: game.darkness, guideHidden: game.guideHidden, bossCharging: game.bossCharging,
+    latched: game.enemies.filter((e) => e.state === 'latched').length,
   }
 }
 
@@ -69,6 +78,19 @@ function playEvent(ev: GameEvent): void {
     case 'boss': return typingSounds.boss()
     case 'boss-hurt': return typingSounds.bossHurt()
     case 'bell': return typingSounds.bell()
+    case 'shoot': return typingSounds.shoot()
+    case 'ink': return typingSounds.ink()
+    case 'howl': return typingSounds.howl()
+    case 'latch': return typingSounds.latch()
+    case 'drain': return typingSounds.drain()
+    case 'call': return typingSounds.call()
+    case 'mimic': return typingSounds.mimic()
+    case 'boss-charge': return typingSounds.charge()
+    case 'boss-attack': return ev.attack === 'quake' ? typingSounds.quake() : undefined
+    case 'windup': return typingSounds.windup()
+    case 'golden': return typingSounds.golden()
+    case 'fragment': return typingSounds.fragment()
+    case 'escape': return typingSounds.escape()
     case 'clear': return typingSounds.clear()
     case 'dead': return typingSounds.dead()
   }
@@ -274,7 +296,8 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
     const bar = makeBar(labelLayer.parentElement ?? labelLayer)
     const updateBar = () => {
       const t = game.target ?? [...game.enemies].filter((e) => game.isVisible(e)).sort((a, b) => a.z - b.z)[0]
-      const key = t ? `${t.id}|${t.word.text}|${t.matcher.typed}|${game.target === t}` : ''
+      const noGuide = game.guideHidden > 0
+      const key = t ? `${t.id}|${t.word.text}|${t.matcher.typed}|${game.target === t}|${noGuide}` : ''
       if (key === bar.key) return
       bar.key = key
       bar.el.classList.toggle('empty', !t)
@@ -282,8 +305,10 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
       bar.text.textContent = t ? t.word.text : ''
       bar.typed.textContent = t ? t.matcher.typed : ''
       const rest = t ? t.matcher.rest : ''
-      bar.next.textContent = rest.slice(0, 1)
-      bar.rest.textContent = rest.slice(1)
+      // 咆哮のあいだ: ローマ字のお手本は消え、かなだけが見える（読みから打つ）
+      bar.el.classList.toggle('noguide', noGuide)
+      bar.next.textContent = noGuide ? '' : rest.slice(0, 1)
+      bar.rest.textContent = noGuide ? `（${t && t.word.kana !== t.word.text ? t.word.kana : 'かな'}を見て打て）` : rest.slice(1)
     }
 
     // --- 言葉の札 ---
@@ -306,13 +331,15 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
           continue
         }
         const visible = game.isVisible(e)
-        const key = `${e.word.text}|${e.matcher.typed}`
+        const noGuide = game.guideHidden > 0
+        const key = `${e.word.text}|${e.matcher.typed}|${noGuide}`
         if (key !== l.key) {
           l.key = key
           l.text.textContent = e.word.text
-          l.kana.textContent = e.word.text !== e.word.kana ? e.word.kana : ''
+          // お手本が消えているあいだは、かなを必ず出す（読みから打てるように）
+          l.kana.textContent = e.word.text !== e.word.kana || noGuide ? e.word.kana : ''
           l.typed.textContent = e.matcher.typed
-          l.rest.textContent = e.matcher.rest
+          l.rest.textContent = noGuide ? '・'.repeat(Math.min(8, e.matcher.rest.length)) : e.matcher.rest
         }
         // 霧の章: 遠いほど文字がぼやける（読めないほどではない。待たせないため、すぐ打てる）
         const fog = game.chapter.reveal > 0 && e.kind !== 'boss'
@@ -330,6 +357,12 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         l.el.classList.toggle('hidden-word', !visible)
         l.el.classList.toggle('danger', e.state === 'windup' || e.state === 'dash')
         l.el.classList.toggle('armored', e.behavior === 'tank' && e.hp > 1)
+        l.el.classList.toggle('orb', e.kind === 'orb')
+        l.el.classList.toggle('golden', e.behavior === 'golden')
+        l.el.classList.toggle('latched', e.state === 'latched')
+        l.el.classList.toggle('aiming', e.state === 'aim')
+        l.el.classList.toggle('charging', e.kind === 'boss' && game.bossCharging !== null)
+        l.el.classList.toggle('in-dark', game.darkness > 0 && !visible)
       }
       for (const [id, l] of labels) {
         if (!alive.has(id)) {

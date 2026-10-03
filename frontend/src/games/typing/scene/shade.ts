@@ -315,7 +315,8 @@ export type ShadeMaterial = THREE.ShaderMaterial & {
 }
 
 export function createShadeMaterial(shape: ShapeName, aura: THREE.ColorRepresentation,
-                                    fogColor: THREE.ColorRepresentation, fogDensity: number): ShadeMaterial {
+                                    fogColor: THREE.ColorRepresentation, fogDensity: number,
+                                    eyeColor?: THREE.ColorRepresentation): ShadeMaterial {
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -332,7 +333,7 @@ export function createShadeMaterial(shape: ShapeName, aura: THREE.ColorRepresent
       uShape: { value: SHAPES[shape] },
       uFogDensity: { value: fogDensity },
       uOpacity: { value: 1 },
-      uEye: { value: new THREE.Color(EYE_COLORS[shape]) },
+      uEye: { value: new THREE.Color(eyeColor ?? EYE_COLORS[shape]) },
       uAura: { value: new THREE.Color(aura) },
       uFogColor: { value: new THREE.Color(fogColor) },
     },

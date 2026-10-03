@@ -435,3 +435,57 @@
   .typing-label-text { font-size: 1.5rem; }
   .typing-label-roma { font-size: 1.15rem; }
 }
+
+/* --- 影の攻撃 --- */
+/* 闇: 画面のまわりから黒く塗りつぶされ、まんなかだけ少し見える */
+.typing-darkness {
+  position: absolute; inset: 0; pointer-events: none; transition: opacity 0.4s;
+  background: radial-gradient(ellipse 34% 30% at 50% 62%, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.94) 70%);
+}
+/* 吸い付かれている: 画面のふちが赤黒く脈打つ */
+.typing-latched { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 160px 40px rgba(140, 0, 30, 0.75); animation: typing-pulse 0.5s ease-in-out infinite alternate; }
+.typing-noguide, .typing-charge {
+  position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  padding: 6px 16px; border-radius: 8px; font-weight: 700;
+}
+.typing-noguide { top: 96px; background: rgba(70, 10, 10, 0.85); border: 1px solid #ff6a4a; color: #ffd0c0; }
+.typing-charge { top: 136px; background: rgba(60, 0, 0, 0.8); color: #ff8a7a; letter-spacing: 0.2em; animation: typing-pulse 0.3s ease-in-out infinite alternate; }
+.typing-label.orb { padding: 3px 10px 4px; border-color: #ff8a30; background: rgba(60, 20, 4, 0.85); }
+.typing-label.orb .typing-label-text { font-size: 1.5rem; color: #ffd0a0; }
+.typing-label.orb .typing-label-roma { font-size: 1.15rem; }
+.typing-label.golden { border-color: #ffd040; box-shadow: 0 0 22px rgba(255, 200, 60, 0.6); }
+.typing-label.golden .typing-label-text { color: #ffe9a0; }
+.typing-label.latched { border-color: #ff2a3a; background: rgba(70, 0, 10, 0.9); animation: typing-danger 0.25s ease-in-out infinite alternate; }
+.typing-label.aiming { border-color: #ff8a30; }
+.typing-label.charging { border-color: #ff3a2a; animation: typing-danger 0.25s ease-in-out infinite alternate; }
+.typing-label.in-dark { opacity: 0.06; }
+.typing-bar.noguide .typing-bar-roma > span:last-child { color: #ff9a8a; font-size: 0.6em; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; }
+
+/* --- 物語: 目的の札 --- */
+.typing-story-box.goal { border: 2px solid var(--typing-accent); text-align: center; box-shadow: 0 0 40px color-mix(in srgb, var(--typing-accent) 35%, transparent); }
+.typing-story-box.goal .typing-story-text { font-weight: 700; color: #fff3d8; font-size: clamp(1.35rem, 3vw, 1.8rem); }
+
+/* --- 拠点: 森の地図 --- */
+.typing-map-goal { font-weight: 700; color: var(--typing-accent); margin: 0 0 12px; }
+.typing-map-path { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 6px 0; }
+.typing-map-path li { display: flex; flex-direction: column; align-items: center; flex: 1 1 90px; position: relative; text-align: center; font-size: 0.85rem; color: var(--text-muted); }
+.typing-map-path li::before { content: ''; position: absolute; top: 9px; left: -50%; width: 100%; height: 2px; background: rgba(255, 255, 255, 0.15); z-index: 0; }
+.typing-map-path li:first-child::before { display: none; }
+.typing-map-path li.passed::before, .typing-map-path li.here::before { background: var(--typing-accent); }
+.typing-map-dot { width: 18px; height: 18px; border-radius: 50%; background: #2a2a30; border: 2px solid rgba(255, 255, 255, 0.25); z-index: 1; }
+.typing-map-path li.passed .typing-map-dot { background: var(--typing-accent); border-color: transparent; }
+.typing-map-path li.here .typing-map-dot { background: #fff3c8; box-shadow: 0 0 14px var(--typing-accent); animation: typing-pulse 0.9s ease-in-out infinite alternate; }
+.typing-map-path li.here { color: #fff; font-weight: 700; }
+.typing-map-name { margin-top: 4px; }
+.typing-map-you { font-size: 0.7rem; color: var(--typing-accent); }
+
+/* --- 拠点: 母の手記 --- */
+.typing-journal { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.typing-journal-page { text-align: left; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; }
+.typing-journal-page.have { border-color: rgba(255, 210, 120, 0.6); color: #ffe9c0; }
+.typing-journal-page:disabled { opacity: 0.45; cursor: default; font-family: inherit; font-size: 0.85rem; }
+.typing-journal-read { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.typing-journal-read article { max-width: 560px; width: 100%; background: #f4ecd8; color: #2a2016; border: none; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; line-height: 2; }
+.typing-journal-read h3 { margin-top: 0; }
+.typing-journal-read button { color: #2a2016; border-color: #8a7a5a; background: transparent; }
+.typing-result-pages { color: #ffe9a0; font-weight: 700; }

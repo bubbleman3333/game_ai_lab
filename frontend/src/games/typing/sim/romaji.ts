@@ -7,8 +7,9 @@
 //      例: 「っか」→ kka / xtuka …、「んか」→ nka / nnka / xnka（「んな」は nnna だけ）
 //   3. 打たれたキーを今のチャンクの打ち方の先頭と比べ、合うものが 1 つでもあれば正解
 //
-// 画面に出すお手本（まだ打っていない部分）は、今打っている打ち方に合わせて変わる
-// （si と打ち始めたら、お手本も shi ではなく si になる）。
+// 画面に出すお手本（まだ打っていない部分）は、いちばん打つ数が少ない書き方にする
+// （「なつのよる」は natsunoyoru ではなく natunoyoru、「し」は si、「ち」は ti）。打つ数が同じなら表の先頭（fu・ji・sha など）。
+// 打ち始めたら、今の打ち方に合わせて変わる（shi と打ち始めたら、お手本も shi になる）。
 
 /** 1 文字（または小さい文字つきの 2 文字）の打ち方。先頭がお手本に使われる */
 const TABLE: Record<string, string[]> = {
@@ -115,6 +116,8 @@ export function toChunks(kana: string): Chunk[] {
     }
     out.unshift(c)
   }
+  // お手本（先頭）は、打つ数がいちばん少ない書き方に。同じ長さなら元の順（sort は同じ値の順を保つ）
+  for (const c of out) c.cands.sort((a, b) => a.length - b.length)
   return out
 }
 

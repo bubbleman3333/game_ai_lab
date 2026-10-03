@@ -53,16 +53,24 @@ interface Shown {
  * walk（まっすぐ来る影）だけは章ごとの候補（themes.ts の shades）から選ぶ。
  */
 const BEHAVIOR_SHAPES: Partial<Record<Behavior, ShapeName[]>> = {
-  creep: ['tall', 'longNeck'],
+  creep: ['tall'],
   hop: ['umbrella'],
   lunge: ['oni'],
-  blink: ['foxMask', 'oneEye'],
-  zigzag: ['jelly', 'tengu'],
-  ambush: ['serpent', 'cat'],
+  blink: ['oneEye'],
+  zigzag: ['cat'],
+  ambush: ['serpent'],
   tank: ['wall'],
   split: ['twins'],
   mini: ['cat', 'kodama'],
+  shooter: ['tengu'],
+  ink: ['jelly'],
+  howl: ['longNeck'],
+  leech: ['foxMask'],
+  caller: ['lantern'],
+  mimic: ['kodama'],
+  golden: ['round'],
 }
+const GOLD = 0xffc040
 
 interface EnemyModel {
   group: THREE.Group
@@ -434,7 +442,15 @@ export class ForestScene {
     let body: THREE.Mesh | THREE.Sprite
     let mat: ShadeMaterial | null = null
     let size: number
-    if (e.kind === 'fox') {
+    if (e.kind === 'orb') {
+      // 火の玉: 橙に燃える玉（1 を超える明るさでブルームが掛かる）。毎フレーム火の粉の尾を引く
+      size = 0.85
+      body = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: foxFireTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+        color: new THREE.Color(1.7, 0.55, 0.12),
+      }))
+      body.scale.set(size, size, 1)
+    } else if (e.kind === 'fox') {
       size = 1.1
       body = new THREE.Sprite(new THREE.SpriteMaterial({
         map: foxFireTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -449,7 +465,8 @@ export class ForestScene {
       const shape: ShapeName = this.forcedShape.get(e.id)
         ?? (e.kind === 'boss' ? t.bossShape : byBehavior ? pick(byBehavior) : pick(t.shades))
       size = (e.kind === 'boss' ? 8.5 : 2.3) * (SHAPE_SCALE[shape] ?? 1)
-      mat = createShadeMaterial(shape, t.shadeAura, t.fog, t.fogDensity)
+      const golden = e.behavior === 'golden'
+      mat = createShadeMaterial(shape, golden ? GOLD : t.shadeAura, t.fog, t.fogDensity, golden ? 0xfff0a0 : undefined)
       body = new THREE.Mesh(this.shadeGeo, mat)
       body.scale.setScalar(size)
     }
@@ -563,7 +580,12 @@ export class ForestScene {
     }
 
     if (game) {
-      this.syncEnemies(dt, game.enemies, game.target?.id ?? null)
+      this.syncEnemies(dt, game.enemies, game.target?.id ?? null, game.bossCharging ? game.boss?.id ?? null : null)
+      // 闇: 霧が濃くなり、ランタンが暗くなる
+      const fog = this.scene.fog as THREE.FogExp2
+      const goalDensity = this.theme.fogDensity + (game.darkness > 0 ? 0.09 : 0)
+      fog.density += (goalDensity - fog.density) * Math.min(1, dt * 3)
+      if (game.darkness > 0) this.lanternLight.intensity *= 0.35
     } else {
       // 飾りの影: 遠くで左右に漂い、ときどき少し近づいてはまた離れる（一覧のときは止めておく）
       for (const d of this.gallery ? [] : this.decor) {
@@ -582,7 +604,7 @@ export class ForestScene {
     else this.renderer.render(this.scene, this.camera)
   }
 
-  private syncEnemies(dt: number, list: readonly Shown[], targetId: number | null): void {
+  private syncEnemies(dt: number, list: readonly Shown[], targetId: number | null, chargingId: number | null = null): void {
     const alive = new Set<number>()
     for (const e of list) {
       alive.add(e.id)
@@ -598,10 +620,13 @@ export class ForestScene {
       m.pulse = Math.max(0, m.pulse - dt * 4)
       m.flash = Math.max(0, m.flash - dt * 5)
       m.lock += ((e.id === targetId ? 1 : 0) - m.lock) * Math.min(1, dt * 10)
-      const y = e.kind === 'boss' ? 3.6 : e.kind === 'fox' ? 1.3 : 1.35
+      const y = e.kind === 'boss' ? 3.6 : e.kind === 'fox' ? 1.3 : e.kind === 'orb' ? 1.5 : 1.35
       m.group.position.set(e.x, y + Math.sin(m.bob * 2) * (e.kind === 'fox' ? 0.25 : 0.12), e.z)
       const s = m.size * (1 + m.pulse * 0.15)
-      if (m.kind === 'fox') {
+      if (m.kind === 'orb') {
+        m.body.scale.setScalar(s * (1 + Math.sin(m.bob * 25) * 0.12))
+        if (Math.random() < 0.6) this.particles.burst(m.group.position, { count: 1, color: 0xff8a30, speed: 0.6, life: 0.45, size: 0.22, lift: 0.3 })
+      } else if (m.kind === 'fox') {
         m.body.scale.set(s, s * 1.4 * (1 + Math.sin(m.bob * 15) * 0.06), 1)
       } else {
         // 板をいつもカメラへ向ける（ビルボード）
@@ -612,7 +637,10 @@ export class ForestScene {
         const u = m.mat.uniforms
         u.uTime.value = this.time
         // 力を溜めている影は、狙われていなくても目が赤く脈打つ（これから飛びかかってくる合図）
-        const windup = e.state === 'windup' ? 0.6 + 0.4 * Math.sin(this.time * 18) : 0
+        // 吸い付いている影・力を溜めているボスも、赤く脈打つ
+        const pulse = 0.6 + 0.4 * Math.sin(this.time * 18)
+        const windup = e.state === 'windup' || e.state === 'latched' || e.id === chargingId ? pulse : 0
+        if (e.id === chargingId) m.flash = Math.max(m.flash, 0.25 + 0.25 * Math.sin(this.time * 12))
         u.uLock.value = Math.max(m.lock, windup)
         u.uFlash.value = Math.max(m.flash, e.state === 'windup' ? 0.12 : 0)
         u.uFogColor.value.copy((this.scene.fog as THREE.FogExp2).color)
@@ -683,6 +711,7 @@ export class ForestScene {
         case 'kill': {
           const boss = ev.enemy === 'boss'
           const at = this.tmpV.set(ev.x, boss ? 3.6 : 1.35, ev.z)
+          if (ev.golden) this.particles.burst(at, { count: 120, color: GOLD, speed: 4, life: 3, size: 0.45, lift: 1 })
           this.particles.burst(at, { count: boss ? 450 : 56, color: FIREFLY, speed: boss ? 7 : 2.8, life: boss ? 5 : 2.8, size: boss ? 0.5 : 0.35, lift: 0.8 })
           this.particles.burst(at, { count: boss ? 90 : 14, color: 0xffffff, speed: boss ? 9 : 3.8, life: 0.6, size: 0.3, lift: 0 })
           break
@@ -700,6 +729,43 @@ export class ForestScene {
         case 'hit':
           this.shake = ev.damage > 1 ? 1.4 : 0.9
           break
+        case 'shoot': {
+          const m = this.models.get(ev.id)
+          if (m) {
+            m.pulse = 1.5
+            this.particles.burst(m.group.position, { count: 24, color: 0xff7a20, speed: 3, life: 0.5, size: 0.3, lift: 0 })
+          }
+          break
+        }
+        case 'howl':
+          this.shake = Math.max(this.shake, 0.9)
+          break
+        case 'latch':
+          this.shake = Math.max(this.shake, 0.7)
+          break
+        case 'drain': {
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(this.lanternGlow.getWorldPosition(this.tmpV), { count: 20, color: 0xff5a20, speed: 1.5, life: 0.6, size: 0.15, lift: 0 })
+          break
+        }
+        case 'boss-attack':
+          if (ev.attack === 'quake') this.shake = Math.max(this.shake, 1.6)
+          else if (ev.attack === 'howl') this.shake = Math.max(this.shake, 1)
+          break
+        case 'call':
+        case 'mimic': {
+          const m = this.models.get(ev.id)
+          if (m) {
+            m.flash = 1
+            this.particles.burst(m.group.position, { count: 30, color: ev.kind === 'call' ? 0xffa040 : 0xb070ff, speed: 2.5, life: 0.8, size: 0.3, lift: 0.4 })
+          }
+          break
+        }
+        case 'escape': {
+          const m = this.models.get(ev.id)
+          if (m) this.particles.burst(m.group.position, { count: 40, color: GOLD, speed: 2, life: 1.2, size: 0.3, lift: 1.5 })
+          break
+        }
         case 'dash': {
           const m = this.models.get(ev.id)
           this.shake = Math.max(this.shake, 0.35)

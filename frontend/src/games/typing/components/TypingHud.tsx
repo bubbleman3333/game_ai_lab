@@ -25,6 +25,10 @@ export function TypingHud({ snap, chapterLabel, goal, healCombo, flash, hurt, en
     <div className="typing-hud">
       {hurt !== null && <div key={hurt} className="typing-hurt" />}
       {snap.oil <= 1 && !snap.result && <div className="typing-danger" />}
+      {snap.darkness > 0 && <div className="typing-darkness" style={{ opacity: Math.min(1, snap.darkness / 1.2) }} />}
+      {snap.latched > 0 && <div className="typing-latched" />}
+      {snap.guideHidden > 0 && <div className="typing-noguide">書き付けが読めない！ かなを見て打て（あと {Math.ceil(snap.guideHidden)} 秒）</div>}
+      {snap.bossCharging && <div className="typing-charge">力を溜めている……！</div>}
 
       <div className="typing-top-left">
         <div className="typing-chapter-label">{chapterLabel}</div>

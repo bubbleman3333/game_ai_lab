@@ -123,6 +123,69 @@ export const typingSounds = {
     ;[0, 7, 12, 19].forEach((n, i) => sound.tone({ freq: sound.note(15 + n), dur: 2.2 - i * 0.3, type: 'sine', gain: 0.1 - i * 0.015, delay: i * 0.02 }))
     sound.tone({ freq: sound.note(15) * 2.76, dur: 1.2, type: 'sine', gain: 0.04 })
   },
+  // ---------------------------------------------------------------- 影の攻撃
+  /** 火の玉を投げた（ごうっと燃えながら飛ぶ） */
+  shoot() {
+    filteredNoise('bandpass', 400, 1600, 0.5, 0.22, 1.2)
+    sound.tone({ freq: 90, to: 220, dur: 0.4, type: 'sawtooth', gain: 0.06 })
+  },
+  /** 闇を吐いた（どろりとした低い音） */
+  ink() {
+    filteredNoise('lowpass', 500, 120, 1.1, 0.3)
+    sound.tone({ freq: 70, to: 40, dur: 1, type: 'sine', gain: 0.22 })
+  },
+  /** 咆哮（うなり声と、ざらついた叫び） */
+  howl() {
+    sound.tone({ freq: 140, to: 70, dur: 1.1, type: 'sawtooth', gain: 0.16 })
+    sound.tone({ freq: 147, to: 74, dur: 1.1, type: 'sawtooth', gain: 0.12 })
+    filteredNoise('bandpass', 900, 300, 1, 0.3, 2)
+  },
+  /** 吸い付かれた（べちゃっ） */
+  latch() {
+    filteredNoise('lowpass', 1500, 200, 0.25, 0.3)
+    sound.tone({ freq: 200, to: 60, dur: 0.2, type: 'square', gain: 0.08 })
+  },
+  /** 油を吸われた（すうっと抜ける音） */
+  drain() {
+    sound.tone({ freq: 600, to: 150, dur: 0.6, type: 'sine', gain: 0.1 })
+    filteredNoise('bandpass', 2000, 400, 0.6, 0.12, 4)
+  },
+  /** 仲間を呼んだ（遠吠え） */
+  call() {
+    sound.tone({ freq: 300, to: 520, dur: 0.5, type: 'triangle', gain: 0.07 })
+    sound.tone({ freq: 520, to: 260, dur: 0.6, type: 'triangle', gain: 0.07, delay: 0.45 })
+  },
+  /** 言葉が化けた（ぐにゃりと音程が揺れる） */
+  mimic() {
+    sound.tone({ freq: 400, to: 800, dur: 0.15, type: 'sine', gain: 0.07 })
+    sound.tone({ freq: 800, to: 300, dur: 0.25, type: 'sine', gain: 0.07, delay: 0.15 })
+  },
+  /** 飛びかかる前に力を溜めている（ぎりぎりと上がる音） */
+  windup() {
+    sound.tone({ freq: 120, to: 480, dur: 1.2, type: 'sawtooth', gain: 0.07 })
+  },
+  /** ボスが力を溜めている（地の底からせり上がる音） */
+  charge() {
+    sound.tone({ freq: 50, to: 160, dur: 1.3, type: 'sawtooth', gain: 0.14 })
+    filteredNoise('lowpass', 200, 1200, 1.3, 0.18)
+  },
+  /** 地鳴り */
+  quake() {
+    sound.tone({ freq: 45, to: 30, dur: 1.4, type: 'sawtooth', gain: 0.2 })
+    filteredNoise('lowpass', 300, 80, 1.4, 0.35)
+  },
+  /** 金色の影が現れた（きらきら） */
+  golden() {
+    ;[0, 5, 9, 14].forEach((n, i) => sound.tone({ freq: sound.note(17 + n), dur: 0.4, type: 'sine', gain: 0.05, delay: i * 0.06 }))
+  },
+  /** 母の手記を見つけた */
+  fragment() {
+    ;[0, 4, 7, 12, 16].forEach((n, i) => sound.tone({ freq: sound.note(5 + n), dur: 0.9, type: 'triangle', gain: 0.07, delay: i * 0.1 }))
+  },
+  /** 金色の影に逃げられた */
+  escape() {
+    ;[12, 7, 3, 0].forEach((n, i) => sound.tone({ freq: sound.note(10 + n), dur: 0.3, type: 'sine', gain: 0.05, delay: i * 0.08 }))
+  },
   /** 森を歩く足音（1 歩ぶん。落ち葉を踏む） */
   step() {
     filteredNoise('lowpass', 700, 220, 0.08, 0.07)
