@@ -61,6 +61,13 @@ const GAMES = [
     ],
   },
   {
+    title: '灯守 ― 夜の森を灯せ ―',
+    text: '物語つきのタイピングゲーム。夜の森で近づく「影」の言葉を打って光に戻し、消えた妹を探す。全 5 章とボス、セーブ 3 つ',
+    links: [
+      { to: '/typing', label: '遊ぶ' },
+    ],
+  },
+  {
     title: '将棋',
     text: 'AI は強豪 AI 同士の対局（floodgate）から ResNet で学び、モンテカルロ木探索で読む（dlshogi 方式）',
     links: [

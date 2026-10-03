@@ -13,6 +13,7 @@
    - エアホッケー → `backend/rl/airhockey/README.md`（物理は `backend/games/airhockey/physics.py` と TS 版）
    - レース（3D）→ `frontend/src/games/racer/README.md`（コースの足し方もここ）、学習 → `backend/rl/racer/README.md`
    - オーシャン・スイム（海を泳ぐ 3D。AI 無し・画面だけ）→ `frontend/src/games/ocean/README.md`
+   - 灯守（物語つきタイピング。AI 無し・画面だけ。セーブあり）→ `frontend/src/games/typing/README.md`
    - シティ（GTA 風 3D オープンワールド・物語つき。ブラウザだけで完結）→ `frontend/src/games/city/README.md`
    - 将棋 → `backend/rl/shogi/README.md`、対局 API → `backend/apps/shogi/views.py` の先頭、
      デスクトップアプリ（PySide6・AI を手元の GPU で直接動かす）→ `backend/desktop/shogi/README.md`

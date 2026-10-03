@@ -1,0 +1,207 @@
+/* --- 灯守（タイピング） ---------------------------------------------------------
+   --typing-accent は章の色（scene/themes.ts の accent）。
+   3D は canvas の中なので、ここは言葉の札・HUD・物語・メニューの見た目だけ。
+   styles.css ではなくこのファイルに置き、ページを開いたときだけ読み込む。 */
+.typing-menu { max-width: 900px; --typing-accent: #ffc46b; }
+.typing-menu h1 small { font-size: 0.55em; color: var(--text-muted); font-weight: 400; }
+.typing-menu button.primary { background: var(--typing-accent); color: #1a1410; border-color: transparent; font-weight: 700; }
+.typing-menu button.ghost { background: transparent; }
+.typing-menu button.danger { color: var(--error); }
+.typing-big { font-size: 1.1rem; padding: 10px 28px; }
+
+.typing-slots { display: grid; gap: 12px; }
+.typing-slot { margin: 0; }
+.typing-slot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.typing-slot-num { font-weight: 700; }
+.typing-slot-where { font-size: 1.05rem; margin: 8px 0 4px; }
+.typing-slot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.typing-next { border-left: 4px solid var(--typing-accent); }
+.typing-next-title { font-size: 1.4rem; font-weight: 700; margin: 4px 0; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; }
+.typing-diff { display: flex; gap: 18px; flex-wrap: wrap; }
+.typing-chapters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.typing-chapter-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); border-top: 3px solid var(--typing-accent);
+}
+.typing-chapter-card:disabled { opacity: 0.45; cursor: not-allowed; }
+.typing-chapter-num { font-size: 0.8rem; color: var(--typing-accent); }
+.typing-chapter-title { font-weight: 700; font-size: 1.05rem; }
+.typing-chapter-best { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; }
+.typing-howto { padding-left: 18px; line-height: 1.9; }
+
+.rank { font-weight: 900; }
+.rank-S { color: #ffd84a; text-shadow: 0 0 10px rgba(255, 216, 74, 0.6); }
+.rank-A { color: #ff8a6b; }
+.rank-B { color: #7ac8ff; }
+.rank-C { color: #b9b8b0; }
+
+/* --- 物語 --- */
+.typing-story {
+  position: fixed; inset: 0; z-index: 20; overflow: hidden; cursor: pointer; user-select: none;
+  color: #f2f2f0; background: #04060c; --typing-accent: #ffc46b;
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 16px;
+}
+.typing-story-sky {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 30% 10%, rgba(80, 100, 160, 0.35), transparent 60%),
+              linear-gradient(#060a18, #0b1420 60%, #05080a);
+}
+.typing-story-sky::after {
+  /* 木々のシルエット */
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 55%;
+  background:
+    radial-gradient(ellipse 8% 60% at 6% 100%, #020403 60%, transparent 61%),
+    radial-gradient(ellipse 7% 75% at 18% 100%, #020403 60%, transparent 61%),
+    radial-gradient(ellipse 9% 55% at 33% 100%, #030504 60%, transparent 61%),
+    radial-gradient(ellipse 6% 80% at 72% 100%, #020403 60%, transparent 61%),
+    radial-gradient(ellipse 8% 60% at 85% 100%, #030504 60%, transparent 61%),
+    radial-gradient(ellipse 7% 70% at 97% 100%, #020403 60%, transparent 61%);
+}
+.typing-story-fireflies span {
+  position: absolute; bottom: 10%; width: 5px; height: 5px; border-radius: 50%;
+  background: #c8ff6a; box-shadow: 0 0 10px 3px rgba(200, 255, 106, 0.6);
+  animation: typing-float 7s ease-in-out infinite; opacity: 0;
+}
+@keyframes typing-float {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: 1; }
+  50% { transform: translate(30px, -30vh); opacity: 0.6; }
+  80% { opacity: 1; }
+  100% { transform: translate(-20px, -60vh); opacity: 0; }
+}
+.typing-story-head {
+  position: absolute; top: 18%; left: 0; right: 0; text-align: center;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; text-shadow: 0 2px 12px #000;
+}
+.typing-story-num { display: block; color: var(--typing-accent); letter-spacing: 0.3em; }
+.typing-story-title { display: block; font-size: clamp(1.6rem, 5vw, 2.6rem); font-weight: 700; letter-spacing: 0.15em; margin-top: 6px; }
+.typing-story-part { display: block; color: #b9b8b0; margin-top: 6px; }
+.typing-story-box {
+  position: relative; max-width: 860px; width: 100%; margin: 0 auto 4vh; padding: 18px 22px 12px;
+  border-radius: 12px; background: rgba(6, 8, 14, 0.82); border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+}
+.typing-story-who {
+  position: absolute; top: -14px; left: 18px; padding: 2px 14px; border-radius: 6px;
+  background: var(--typing-accent); color: #1a1410; font-weight: 700;
+}
+.typing-story-text {
+  min-height: 4.4em; margin: 6px 0 8px; font-size: clamp(1.05rem, 2.4vw, 1.3rem); line-height: 1.9;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif;
+}
+.typing-story-caret { margin-left: 6px; color: var(--typing-accent); animation: typing-blink 1s steps(2) infinite; font-size: 0.8em; }
+@keyframes typing-blink { 50% { opacity: 0; } }
+.typing-story-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.typing-story-foot .muted { color: #b9b8b0; }
+.typing-story button { color: #f2f2f0; background: transparent; border-color: #4a4a48; }
+
+/* --- 戦い --- */
+.typing-play {
+  position: fixed; inset: 0; background: #000; overflow: hidden; z-index: 20; --typing-accent: #ffc46b;
+  /* 3D の上に重ねるので、明るい配色のときも文字は白で固定する */
+  color: #f2f2f0; --text: #f2f2f0; --text-muted: #b9b8b0; --surface-1: #1a1a19; --surface-2: #242423; --border: #4a4a48;
+}
+.typing-play button { color: #f2f2f0; background: #242423; border-color: #4a4a48; }
+.typing-play button.primary { background: var(--typing-accent); color: #1a1410; }
+.typing-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.typing-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.typing-hidden-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; }
+
+.typing-label {
+  position: absolute; left: 0; top: 0; transform-origin: 50% 100%; text-align: center; white-space: nowrap;
+  padding: 6px 12px 7px; border-radius: 10px; background: rgba(6, 6, 14, 0.72); border: 1px solid rgba(255, 255, 255, 0.18);
+  text-shadow: 0 1px 4px #000; transition: border-color 0.1s, background 0.1s;
+}
+.typing-label-text { font-size: 1.35rem; font-weight: 700; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; line-height: 1.25; }
+.typing-label-kana { font-size: 0.78rem; color: #c8c4b8; min-height: 0; }
+.typing-label-kana:empty { display: none; }
+.typing-label-roma { font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; letter-spacing: 0.04em; color: #e8e6dc; }
+.typing-label-roma .typed { color: var(--typing-accent); }
+.typing-label.locked { border-color: var(--typing-accent); background: rgba(30, 20, 8, 0.85); box-shadow: 0 0 18px rgba(255, 190, 90, 0.35); }
+.typing-label.near { border-color: #ff5a4a; }
+.typing-label.fox .typing-label-text { color: #9fdcff; }
+.typing-label.hidden-word { opacity: 0.55; }
+.typing-label.hidden-word .typing-label-roma { display: none; }
+.typing-label.boss { padding: 10px 20px 12px; border-color: rgba(255, 90, 70, 0.6); max-width: 92vw; white-space: normal; }
+.typing-label.boss .typing-label-text { font-size: clamp(1.3rem, 3vw, 2rem); }
+.typing-label.boss .typing-label-roma { font-size: clamp(1rem, 2.2vw, 1.35rem); word-break: break-all; }
+.typing-label.boss.locked { border-color: var(--typing-accent); }
+
+.typing-hud { position: absolute; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8); }
+.typing-hurt { position: absolute; inset: 0; box-shadow: inset 0 0 140px 50px rgba(120, 10, 40, 0.85); animation: typing-fade 0.8s ease-out forwards; }
+@keyframes typing-fade { from { opacity: 1; } to { opacity: 0; } }
+.typing-danger { position: absolute; inset: 0; box-shadow: inset 0 0 100px 20px rgba(0, 0, 0, 0.9); animation: typing-pulse 0.9s ease-in-out infinite alternate; }
+@keyframes typing-pulse { from { opacity: 0.4; } to { opacity: 1; } }
+
+.typing-top-left { position: absolute; top: 14px; left: 16px; }
+.typing-chapter-label { font-size: 0.85rem; opacity: 0.85; margin-bottom: 6px; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; }
+.typing-oil { display: flex; gap: 6px; }
+.typing-oil .drop {
+  width: 16px; height: 22px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.typing-oil .drop.full { background: radial-gradient(circle at 50% 65%, #fff4c8, #ffb040 55%, #c86a10); box-shadow: 0 0 10px rgba(255, 170, 60, 0.7); border-color: transparent; }
+.typing-heal-hint { font-size: 0.72rem; opacity: 0.7; margin-top: 4px; }
+.typing-top-right { position: absolute; top: 14px; right: 110px; text-align: right; }
+.typing-score { font-size: 2rem; font-weight: 900; color: var(--typing-accent); line-height: 1; }
+.typing-sub { font-size: 0.82rem; opacity: 0.85; margin-top: 3px; }
+
+.typing-boss { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, 50vw); text-align: center; }
+.typing-boss-name { font-weight: 700; color: #ff8a7a; font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; }
+.typing-boss-bar { height: 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.2); overflow: hidden; margin: 4px 0 2px; }
+.typing-boss-bar > div { height: 100%; background: linear-gradient(90deg, #6a1020, #ff4a4a); transition: width 0.4s; }
+.typing-boss-hint { font-size: 0.72rem; opacity: 0.75; }
+
+.typing-combo {
+  position: absolute; left: 18px; bottom: 18px; display: flex; align-items: baseline; gap: 8px;
+  animation: typing-pop 0.25s ease-out;
+}
+@keyframes typing-pop { from { transform: scale(1.25); } to { transform: scale(1); } }
+.typing-combo-num { font-size: 2.6rem; font-weight: 900; color: var(--typing-accent); line-height: 1; }
+.typing-combo-label { font-size: 0.85rem; letter-spacing: 0.15em; opacity: 0.85; }
+.typing-combo-mul { font-size: 1.2rem; font-weight: 700; color: #c8ff6a; }
+
+.typing-flash {
+  position: absolute; left: 50%; top: 24%; transform: translateX(-50%); white-space: nowrap;
+  padding: 8px 20px; border-radius: 10px; background: rgba(6, 6, 14, 0.6); font-weight: 700;
+  animation: typing-flash 1.3s ease-out forwards;
+}
+.typing-flash.good { color: #c8ff6a; }
+.typing-flash.bad { color: #ff7a6b; }
+.typing-flash.info { color: #fff; }
+.typing-flash.big {
+  top: 32%; font-size: clamp(1.4rem, 4vw, 2.2rem); background: none; letter-spacing: 0.12em;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; animation-duration: 2.2s;
+}
+@keyframes typing-flash { 0% { opacity: 0; } 12% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+.typing-ime {
+  position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%); max-width: 92vw; text-align: center;
+  padding: 10px 18px; border-radius: 10px; background: rgba(120, 30, 20, 0.92); border: 1px solid #ff7a6b;
+}
+.typing-pause-btn { position: absolute; top: 12px; right: 12px; }
+.typing-pause {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, 92vw); text-align: center;
+  background: rgba(20, 20, 24, 0.95);
+}
+
+/* --- 結果 --- */
+.typing-result-page { display: flex; justify-content: center; }
+.typing-result { width: min(560px, 100%); text-align: center; border-top: 4px solid var(--typing-accent); }
+.typing-result h1 { font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; margin-top: 8px; }
+.typing-rank { font-size: 4.5rem; font-weight: 900; line-height: 1; margin: 6px 0; }
+.typing-result-score { font-size: 2rem; font-weight: 900; color: var(--typing-accent); }
+.typing-record { display: inline-block; margin-left: 10px; font-size: 0.9rem; color: #c8ff6a; vertical-align: middle; }
+.typing-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 16px 0; text-align: left; }
+.typing-result-list div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 4px 0; }
+.typing-result-list dt { color: var(--text-muted); }
+.typing-result-list dd { margin: 0; }
+.typing-result-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+
+@media (max-width: 640px) {
+  .typing-top-right { right: 12px; top: 56px; }
+  .typing-score { font-size: 1.5rem; }
+  .typing-boss { top: 110px; width: 80vw; }
+  .typing-label-text { font-size: 1.1rem; }
+}
