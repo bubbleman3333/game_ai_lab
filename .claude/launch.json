@@ -4,7 +4,15 @@
     {
       "name": "site-stats",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["wrangler", "dev", "--config", "../site_stats/stats/wrangler.jsonc", "--port", "8799", "--local"],
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--config",
+        "../site_stats/stats/wrangler.jsonc",
+        "--port",
+        "8799",
+        "--local"
+      ],
       "port": 8799
     },
     {
@@ -103,7 +111,13 @@
     {
       "name": "tiny-chat",
       "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "http.server", "8010", "-d", "../tiny_chat/web"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8010",
+        "-d",
+        "../tiny_chat/web"
+      ],
       "port": 8010
     },
     {
@@ -145,6 +159,19 @@
         "--tunnel"
       ],
       "port": 8081
+    },
+    {
+      "name": "algo-zukai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "../algo_zukai",
+        "run",
+        "dev",
+        "--",
+        "--strictPort"
+      ],
+      "port": 8793
     }
   ]
 }
