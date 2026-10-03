@@ -1,5 +1,5 @@
 // 絵の素材（テクスチャ）を canvas でその場で描く。画像ファイルは使わない。
-// 影・狐火・光のにじみ・月。どれも一度作ったら使い回す（disposeTextures で片づける）。
+// 狐火・光のにじみ・月（影はシェーダーで描く: shade.ts）。どれも一度作ったら使い回す（disposeTextures で片づける）。
 
 import * as THREE from 'three'
 
@@ -28,50 +28,6 @@ export function glowTexture(): THREE.CanvasTexture {
     grad.addColorStop(1, 'rgba(255,255,255,0)')
     g.fillStyle = grad
     g.fillRect(0, 0, s, s)
-  })
-}
-
-/** 影の体。黒いもやに、うっすら紫のふち。下がすそ広がりにぼやける */
-export function shadeBodyTexture(): THREE.CanvasTexture {
-  return make('shade', 256, (g, s) => {
-    const cx = s / 2
-    // 外側のうっすらした紫の光（暗い森でも輪郭が見えるように）
-    const halo = g.createRadialGradient(cx, s * 0.5, s * 0.15, cx, s * 0.5, s * 0.5)
-    halo.addColorStop(0, 'rgba(120,90,200,0.35)')
-    halo.addColorStop(1, 'rgba(120,90,200,0)')
-    g.fillStyle = halo
-    g.fillRect(0, 0, s, s)
-    // 体: 頭が丸く、下へ行くほど細く溶ける
-    g.save()
-    g.translate(cx, s * 0.42)
-    g.scale(1, 1.35)
-    const body = g.createRadialGradient(0, 0, 0, 0, 0, s * 0.3)
-    body.addColorStop(0, 'rgba(6,4,14,1)')
-    body.addColorStop(0.7, 'rgba(10,6,22,0.9)')
-    body.addColorStop(1, 'rgba(10,6,22,0)')
-    g.fillStyle = body
-    g.beginPath()
-    g.arc(0, 0, s * 0.3, 0, Math.PI * 2)
-    g.fill()
-    g.restore()
-  })
-}
-
-/** 影の目（足し算で光らせるので、目以外は黒＝透明扱い） */
-export function shadeEyesTexture(): THREE.CanvasTexture {
-  return make('eyes', 256, (g, s) => {
-    g.fillStyle = '#000'
-    g.fillRect(0, 0, s, s)
-    for (const ex of [s * 0.4, s * 0.6]) {
-      const grad = g.createRadialGradient(ex, s * 0.38, 0, ex, s * 0.38, s * 0.07)
-      grad.addColorStop(0, 'rgba(255,255,255,1)')
-      grad.addColorStop(0.35, 'rgba(255,255,255,0.8)')
-      grad.addColorStop(1, 'rgba(255,255,255,0)')
-      g.fillStyle = grad
-      g.beginPath()
-      g.ellipse(ex, s * 0.38, s * 0.07, s * 0.045, 0, 0, Math.PI * 2)
-      g.fill()
-    }
   })
 }
 

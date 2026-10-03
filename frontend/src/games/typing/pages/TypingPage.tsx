@@ -1,25 +1,32 @@
 // 灯守（タイピング）の画面 `/typing`。
 //
 // 画面の流れ:
-//   セーブスロット選び → 拠点（物語を進める・章を遊び直す・難しさ）
+//   タイトル（「はじめる」を打つ）→ セーブスロット選び → 拠点（物語を進める・章を遊び直す・難しさ）
 //     → 物語（はじめの話）→ 戦い → 結果 → 物語（その後の話）→ 次の章のはじめの話 → …
 //
 // セーブは sim/save.ts。物語は 1 行ごと、戦いは結果が出たときに保存する。
+// タイトル・セーブ・拠点・結果の後ろには、ずっと夜の森（ForestBackdrop）を動かしている。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { SoundControl } from '../../../components/SoundControl'
+import { ForestBackdrop } from '../components/ForestBackdrop'
 import { ForestCanvas, type Snapshot, snapshotOf } from '../components/ForestCanvas'
+import { TitleScreen } from '../components/TitleScreen'
 import { StoryView } from '../components/StoryView'
 import { type Flash, TypingHud } from '../components/TypingHud'
 import { themeFor } from '../scene/themes'
-import { CHAPTERS, type Chapter, ENDLESS } from '../sim/chapters'
-import { DIFFICULTIES, type Difficulty, type GameEvent, rankOf, TypingGame } from '../sim/game'
+import { ALLIES, type AllyId, CHAPTERS, type Chapter, ENDLESS, type StoryLine } from '../sim/chapters'
+import { DIFFICULTIES, type Difficulty, type GameEvent, type Perks, rankOf, TypingGame } from '../sim/game'
 import {
-  advanceLine, type Best, currentChapter, deleteSlot, exportSave, finishPart, loadSlots, newSave, parseSave,
+  advanceLine, alliesOf, type Best, currentChapter, perksOf, deleteSlot, exportSave, finishPart, loadSlots, newSave, parseSave,
   playableChapters, recordResult, type SaveData, SLOT_COUNT, storyFinished, writeSlot,
 } from '../sim/save'
+import { Link } from 'react-router-dom'
+import { runtime } from '../runtime'
 import '../typing.css'
 
 type View =
+  | { k: 'title' }
   | { k: 'slots' }
   | { k: 'hub' }
   | { k: 'story' }
@@ -42,7 +49,7 @@ export function TypingPage() {
   const [slots, setSlots] = useState<(SaveData | null)[]>(() => loadSlots())
   const [slot, setSlot] = useState<number | null>(null)
   const [save, setSave] = useState<SaveData | null>(null)
-  const [view, setView] = useState<View>({ k: 'slots' })
+  const [view, setView] = useState<View>({ k: 'title' })
   const [saveFailed, setSaveFailed] = useState(false)
 
   /** セーブを変えて保存する（画面の値も一緒に変える） */
@@ -75,8 +82,17 @@ export function TypingPage() {
   }, [view.k, save, continueStory])
 
   // ---------------------------------------------------------------- 画面
+  if (view.k === 'title') {
+    return (
+      <MenuShell themeId="title" bare>
+        <TitleScreen onStart={() => setView({ k: 'slots' })} />
+      </MenuShell>
+    )
+  }
+
   if (view.k === 'slots' || !save || slot === null) {
     return (
+      <MenuShell themeId="title">
       <SlotScreen
         slots={slots}
         onOpen={openSlot}
@@ -91,6 +107,7 @@ export function TypingPage() {
         onDelete={(i) => { deleteSlot(i); setSlots(loadSlots()) }}
         onImport={(i, s) => { writeSlot(i, s); setSlots(loadSlots()) }}
       />
+      </MenuShell>
     )
   }
 
@@ -98,7 +115,17 @@ export function TypingPage() {
     const ch = currentChapter(save)
     if (!ch || save.part === 'play') return null // 上の useEffect が画面を移す
     const lines = save.part === 'intro' ? ch.intro : ch.outro
+    // 背景: 今の行までで最後に指定された bg（無ければ章の森）
+    let bg = ch.id
+    for (let i = Math.min(save.line, lines.length - 1); i >= 0; i--) {
+      const b = lines[i].bg
+      if (b) {
+        bg = b
+        break
+      }
+    }
     return (
+      <MenuShell themeId={bg} bare>
       <StoryView
         chapter={ch}
         part={save.part}
@@ -114,6 +141,7 @@ export function TypingPage() {
           else continueStory(next)
         }}
       />
+      </MenuShell>
     )
   }
 
@@ -123,6 +151,8 @@ export function TypingPage() {
         key={view.run}
         chapter={view.chapter}
         difficulty={save.difficulty}
+        perks={perksOf(save)}
+        allies={alliesOf(save)}
         onQuit={() => setView({ k: 'hub' })}
         onFinish={(game) => {
           const snap = snapshotOf(game)
@@ -144,25 +174,44 @@ export function TypingPage() {
 
   if (view.k === 'result') {
     return (
-      <ResultScreen
-        view={view}
-        onRetry={() => setView({ k: 'play', chapter: view.chapter, story: view.story, run: Date.now() })}
-        onStory={() => continueStory(save)}
-        onHub={() => setView({ k: 'hub' })}
-      />
+      <MenuShell themeId={view.chapter.id}>
+        <ResultScreen
+          view={view}
+          onRetry={() => setView({ k: 'play', chapter: view.chapter, story: view.story, run: Date.now() })}
+          onStory={() => continueStory(save)}
+          onHub={() => setView({ k: 'hub' })}
+        />
+      </MenuShell>
     )
   }
 
   return (
-    <HubScreen
-      save={save}
-      slot={slot}
-      saveFailed={saveFailed}
-      onStory={() => continueStory(save)}
-      onPlay={(c) => setView({ k: 'play', chapter: c, story: false, run: Date.now() })}
-      onDifficulty={(d) => persist({ ...save, difficulty: d })}
-      onBack={() => { setSlots(loadSlots()); setView({ k: 'slots' }) }}
-    />
+    <MenuShell themeId={currentChapter(save)?.id ?? 'dawn'}>
+      <HubScreen
+        save={save}
+        slot={slot}
+        saveFailed={saveFailed}
+        onStory={() => continueStory(save)}
+        onPlay={(c) => setView({ k: 'play', chapter: c, story: false, run: Date.now() })}
+        onDifficulty={(d) => persist({ ...save, difficulty: d })}
+        onBack={() => { setSlots(loadSlots()); setView({ k: 'slots' }) }}
+      />
+    </MenuShell>
+  )
+}
+
+// ==================================================================== メニューの外枠
+/** 夜の森を背景に、メニューを重ねて出す。bare のときは中身をそのまま全面に出す（タイトル用） */
+function MenuShell({ themeId, bare, children }: { themeId: string; bare?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="typing-shell" style={{ ['--typing-accent' as string]: themeFor(themeId).accent }}>
+      <ForestBackdrop key={themeId} themeId={themeId} />
+      <div className="typing-shell-veil" />
+      {runtime.standalone
+        ? <div className="typing-sound"><SoundControl /></div>
+        : <Link to="/" className="typing-home">← ゲーム一覧</Link>}
+      <div className={bare ? 'typing-shell-bare' : 'typing-shell-body'}>{children}</div>
+    </div>
   )
 }
 
@@ -206,8 +255,8 @@ function SlotScreen({ slots, onOpen, onNew, onDelete, onImport }: {
     <div className="page typing-menu">
       <h1>灯守 <small>― 夜の森を灯せ ―</small></h1>
       <p className="muted">
-        森に消えた妹を探して、灯守（ひもり）の見習いが夜の森を進むタイピングゲーム。
-        森の奥から近づいてくる「影」は、言葉をなくした者たち。その言葉を打てば、影は光に戻る。
+        夜明けまでに、影にさらわれた妹ミオを連れ戻せ。灯守（ひもり）の見習いが、ランタンひとつで夜の森を進むタイピングゲーム。
+        近づいてくる「影」の言葉を打てば、影は光に還る。影に捕らわれた仲間を助け出しながら、森の奥へ。
       </p>
 
       <h2>セーブデータ</h2>
@@ -256,6 +305,8 @@ function SlotScreen({ slots, onOpen, onNew, onDelete, onImport }: {
   )
 }
 
+const ALLY_ICON: Record<AllyId, string> = { kuro: '🦉', ruri: '✦', bell: '🔔', mio: '♪' }
+
 // ==================================================================== 拠点
 function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBack }: {
   save: SaveData
@@ -277,9 +328,10 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
       <section className="card typing-next" style={{ ['--typing-accent' as string]: themeFor(cur?.id ?? 'dawn').accent }}>
         {cur ? (
           <>
-            <div className="muted small">物語のつづき</div>
+            <div className="typing-next-hour">{cur.hour}</div>
             <div className="typing-next-title">{cur.number}「{cur.title}」</div>
-            <p className="muted">{cur.blurb}</p>
+            <p className="typing-next-goal">目的: {cur.goal}</p>
+            <p className="muted small">{cur.blurb}</p>
             <button type="button" className="primary typing-big" onClick={onStory}>
               {save.part === 'play' ? '戦いへ' : '物語を進める'}
             </button>
@@ -291,6 +343,24 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
             <button type="button" className="primary typing-big" onClick={() => onPlay(ENDLESS)}>終わらない夜へ</button>
           </>
         )}
+      </section>
+
+      <section className="card">
+        <h2>仲間とお守り</h2>
+        <div className="typing-allies">
+          {(Object.keys(ALLIES) as AllyId[]).map((id) => {
+            const a = ALLIES[id]
+            const have = alliesOf(save).includes(id)
+            const where = CHAPTERS.find((c) => c.rescue === id)
+            return (
+              <div key={id} className={have ? 'typing-ally have' : 'typing-ally'}>
+                <span className="typing-ally-icon" aria-hidden>{have ? ALLY_ICON[id] : '？'}</span>
+                <span className="typing-ally-name">{have ? a.name : '？？？'}</span>
+                <span className="muted small">{have ? a.power : `${where?.number ?? ''}で、影に捕らわれている……`}</span>
+              </div>
+            )
+          })}
+        </div>
       </section>
 
       <section className="card">
@@ -344,7 +414,8 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
           <li>最初の 1 文字で、その文字から始まるいちばん近い影を狙う。打ち終えるまで狙いは変わらない（<kbd>Backspace</kbd> で外せる）</li>
           <li>近づかれるとランタンの油が減る。油が 0 になると灯りが消えて終わり。<b>30 打ミス無しで油が 1 戻る</b></li>
           <li>コンボが続くほど得点の倍率が上がり（最大 ×4）、ランタンも明るくなる</li>
-          <li>章の最後にはボス。ボスの「なくした言葉」を順に打って返す。<kbd>Esc</kbd> で一時停止</li>
+          <li>章の最後にはボス。ボスの「なくした言葉」を順に打って返すと、捕らわれた者を助け出せる。<kbd>Esc</kbd> で一時停止</li>
+          <li>助けた仲間は力を貸してくれる。忘れ神の鈴を手に入れたら、<kbd>Space</kbd> で 1 戦に 1 回、影を押し戻せる</li>
         </ul>
       </section>
 
@@ -354,13 +425,29 @@ function HubScreen({ save, slot, saveFailed, onStory, onPlay, onDifficulty, onBa
 }
 
 // ==================================================================== 戦い
-function PlayScreen({ chapter, difficulty, onQuit, onFinish }: {
+/** 油が残りわずかになったとき、そばにいる仲間がかける声（いない仲間の声は出さない） */
+const CHEERS: { ally: AllyId | null; line: StoryLine }[] = [
+  { ally: 'mio', line: { who: 'ミオ', text: 'だいじょうぶ、歌ってるよ！ ゆっくりでいいから！' } },
+  { ally: 'ruri', line: { who: 'ルリ', text: 'がんばって！ 灯り、まだ消えてないよ！' } },
+  { ally: 'kuro', line: { who: 'クロ', text: '落ち着け！ 近いものから、正しく唱えよ！' } },
+  { ally: null, line: { text: '油が残りわずかだ。……落ち着いて、一つずつ。' } },
+]
+
+function PlayScreen({ chapter, difficulty, perks, allies, onQuit, onFinish }: {
   chapter: Chapter
   difficulty: Difficulty
+  perks: Perks
+  allies: AllyId[]
   onQuit: () => void
   onFinish: (game: TypingGame) => void
 }) {
-  const game = useMemo(() => new TypingGame(chapter, difficulty), [chapter, difficulty])
+  // 戦いは最初の 1 回だけ作る（perks は描き直すたびに新しい値になるので、useMemo の依存にすると作り直されてしまう）
+  const [game] = useState(() => new TypingGame(chapter, difficulty, Date.now(), perks))
+  /** 戦いの最中に出る台詞（波ごとの声・ボスの本音・仲間の声） */
+  const [talk, setTalk] = useState<(StoryLine & { id: number }) | null>(null)
+  const cheered = useRef(false)
+  /** 操作の案内（第一章だけ）: 最初の影が出たら出し、最初に倒したら消す */
+  const [tutorial, setTutorial] = useState<'wait' | 'show' | 'done'>(chapter.id === 'entrance' ? 'wait' : 'done')
   const [snap, setSnap] = useState<Snapshot>(() => snapshotOf(game))
   const [flash, setFlash] = useState<Flash | null>(null)
   const [hurt, setHurt] = useState<number | null>(null)
@@ -373,21 +460,59 @@ function PlayScreen({ chapter, difficulty, onQuit, onFinish }: {
     for (const ev of events) {
       const id = Date.now() + Math.random()
       switch (ev.kind) {
-        case 'wave':
+        case 'wave': {
           setFlash(game.endless
             ? { text: `第 ${ev.index + 1} の波`, kind: 'big', id }
             : { text: ev.index === 0 ? '影が近づいてくる……' : `第 ${ev.index + 1} の波`, kind: 'big', id })
+          const line = chapter.waveLines[ev.index]
+          if (line) setTalk({ ...line, id })
           break
-        case 'boss': setFlash({ text: `${ev.name} が現れた`, kind: 'big', id }); break
-        case 'boss-hurt': setFlash({ text: `言葉を返した！ +${ev.score}`, kind: 'good', id }); break
-        case 'heal': setFlash({ text: 'ホタルが油を運んできた（油 +1）', kind: 'good', id }); break
-        case 'hit': setHurt(id); setFlash({ text: ev.damage > 1 ? '影に呑まれかけた！ 油 -2' : '影に触れられた 油 -1', kind: 'bad', id }); break
+        }
+        case 'boss':
+          setFlash({ text: `${ev.name} が現れた`, kind: 'big', id })
+          if (chapter.boss) setTalk({ ...chapter.boss.appear, id })
+          break
+        case 'boss-hurt': {
+          setFlash({ text: `言葉を返した！ +${ev.score}`, kind: 'good', id })
+          const b = chapter.boss
+          if (b) setTalk({ who: b.name, text: b.reactions[b.phrases.length - ev.left - 1], id })
+          break
+        }
+        case 'spawn': setTutorial((t) => (t === 'wait' ? 'show' : t)); break
+        case 'kill': {
+          setTutorial('done')
+          const b = chapter.boss
+          if (ev.enemy === 'boss' && b) setTalk({ who: b.name, text: b.reactions[b.reactions.length - 1], id })
+          break
+        }
+        case 'bell': setFlash({ text: '鈴の音が、森に響きわたった', kind: 'big', id }); break
+        case 'windup': setFlash({ text: '来るぞ！ 飛びかかってくる！', kind: 'bad', id }); break
+        case 'ambush': setFlash({ text: '茂みから飛び出してきた！', kind: 'bad', id }); break
+        case 'armor': setFlash({ text: '殻が割れた！ もうひとつ！', kind: 'good', id }); break
+        case 'split': setFlash({ text: '影が分かれた！', kind: 'info', id }); break
+        case 'heal': setFlash({ text: allies.includes('mio') ? 'ミオの歌が灯りを強めた（油 +1）' : 'ホタルが油を運んできた（油 +1）', kind: 'good', id }); break
+        case 'hit': {
+          setHurt(id)
+          setFlash({ text: ev.damage > 1 ? '影に呑まれかけた！ 油 -2' : '影に触れられた 油 -1', kind: 'bad', id })
+          if (game.oil <= 2 && game.oil > 0 && !cheered.current) {
+            cheered.current = true
+            const c = CHEERS.find((x) => x.ally === null || allies.includes(x.ally))!
+            setTalk({ ...c.line, id })
+          }
+          break
+        }
         case 'clear': setFlash({ text: '影はすべて光に戻った', kind: 'big', id }); break
         case 'dead': setFlash({ text: 'ランタンの灯が消えた……', kind: 'bad', id }); break
         case 'key': setIme(false); break
       }
     }
-  }, [game])
+  }, [game, chapter, allies])
+
+  useEffect(() => {
+    if (!talk) return
+    const t = setTimeout(() => setTalk(null), 4800)
+    return () => clearTimeout(t)
+  }, [talk])
 
   useEffect(() => {
     if (!flash) return
@@ -419,7 +544,21 @@ function PlayScreen({ chapter, difficulty, onQuit, onFinish }: {
         onIme={() => setIme(true)}
         inputRef={inputRef}
       />
-      <TypingHud snap={snap} chapterLabel={`${chapter.number} ${chapter.title}`} flash={flash} hurt={hurt} endless={game.endless} />
+      <TypingHud snap={snap} chapterLabel={`${chapter.number} ${chapter.title}`} goal={chapter.goal} healCombo={perks.healCombo}
+        flash={flash} hurt={hurt} endless={game.endless} />
+      {tutorial === 'show' && !paused && (
+        <div className="typing-tutorial">
+          影の上に浮かぶ言葉を、<b>ローマ字</b>で打とう<br />
+          <span className="muted small">例: 森（もり）→ </span><span className="mono">mori</span>
+          <span className="muted small">　打ち間違えても大丈夫。正しいキーだけ進む</span>
+        </div>
+      )}
+      {talk && (
+        <div key={talk.id} className="typing-talk">
+          {talk.who && <span className="typing-talk-who">{talk.who}</span>}
+          <span className="typing-talk-text">{talk.text}</span>
+        </div>
+      )}
       <input
         ref={inputRef}
         className="typing-hidden-input"
@@ -438,6 +577,7 @@ function PlayScreen({ chapter, difficulty, onQuit, onFinish }: {
         <div className="typing-pause card" onPointerDown={(e) => e.stopPropagation()}>
           <h2>一時停止</h2>
           <p className="muted small">やめると、この戦いの記録は残らない（物語の位置はそのまま）。</p>
+          {runtime.standalone && <div className="typing-pause-sound"><SoundControl /></div>}
           <div className="typing-result-actions">
             <button type="button" className="primary" onClick={() => setPaused(false)}>続ける（Esc）</button>
             <button type="button" className="ghost" onClick={onQuit}>やめて戻る</button>
@@ -458,6 +598,23 @@ function ResultScreen({ view, onRetry, onStory, onHub }: {
   const { chapter, cleared, best, record, snap } = view
   const endless = chapter.id === ENDLESS.id
   const toStory = view.story && cleared
+  const [copied, setCopied] = useState(false)
+  const shareText = endless
+    ? `「灯守 ― 夜の森を灯せ ―」終わらない夜で第 ${snap.wave + 1} の波まで灯した！ ${best.score.toLocaleString()} 点・${Math.round(best.kpm)} 打/分 #灯守タイピング`
+    : cleared
+      ? `「灯守 ― 夜の森を灯せ ―」${chapter.number}「${chapter.title}」をランク ${best.rank} でクリア！ ${best.score.toLocaleString()} 点・${Math.round(best.kpm)} 打/分・正確さ ${(best.accuracy * 100).toFixed(1)}% #灯守タイピング`
+      : `「灯守 ― 夜の森を灯せ ―」${chapter.number}「${chapter.title}」で灯が消えた……。${best.score.toLocaleString()} 点 #灯守タイピング`
+  const shareUrl = `${window.location.origin}/typing`
+  const tweet = `https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`${shareText}
+${shareUrl}`)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Enter') return
@@ -485,6 +642,10 @@ function ResultScreen({ view, onRetry, onStory, onHub }: {
           <div><dt>時間</dt><dd className="mono">{Math.floor(snap.time / 60)}:{String(Math.floor(snap.time % 60)).padStart(2, '0')}</dd></div>
         </dl>
         {!cleared && !endless && <p className="muted small">油は 30 打ミス無しで 1 戻る。急がず正確に打つのが近道。難しさを下げることもできる。</p>}
+        <div className="typing-share">
+          <a className="typing-share-x" href={tweet} target="_blank" rel="noopener noreferrer">𝕏 で結果をシェア</a>
+          <button type="button" className="ghost" onClick={copy}>{copied ? 'コピーしました' : '結果の文をコピー'}</button>
+        </div>
         <div className="typing-result-actions">
           {toStory && <button type="button" className="primary typing-big" onClick={onStory}>物語のつづきへ（Enter）</button>}
           <button type="button" className={toStory ? 'ghost' : 'primary'} onClick={onRetry}>もう一度{toStory ? '' : '（Enter）'}</button>

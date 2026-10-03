@@ -4,31 +4,93 @@
 //   鳴らしっぱなしの音 夜の森の風と低い唸り、虫の声。ForestAmbience で start() / update() / **stop()**
 
 import { sound, type Drone } from '../../lib/sound'
+import type { Sfx } from './sim/chapters'
 
-/** ペンタトニック（ド・レ・ミ・ソ・ラ）。コンボが続くほど打鍵の音が上がっていく */
-const PENTA = [0, 2, 4, 7, 9]
+/** 和風の音階（都節: レ・ミ♭・ソ・ラ・シ♭）。コンボが続くほど打鍵の音が上がっていく */
+const MIYAKO = [0, 1, 5, 7, 8]
 
-function pentaNote(step: number): number {
-  const oct = Math.floor(step / PENTA.length)
-  return sound.note(-9 + PENTA[step % PENTA.length] + oct * 12) // C4 から
+function scaleNote(step: number): number {
+  const oct = Math.floor(step / MIYAKO.length)
+  return sound.note(-7 + MIYAKO[step % MIYAKO.length] + oct * 12) // D4 から
+}
+
+/** ざらざらした音の元（打鍵の「カチッ」・斬撃の「シャッ」に使う）。一度作ったら使い回す */
+let noiseBuf: AudioBuffer | null = null
+function noiseOf(ctx: AudioContext): AudioBuffer {
+  if (!noiseBuf || noiseBuf.sampleRate !== ctx.sampleRate) {
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate)
+    const d = noiseBuf.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  }
+  return noiseBuf
+}
+
+/**
+ * フィルターを通したノイズを 1 回鳴らす（lib/sound.ts の noise() はローパスしか無いので、ここで組む）。
+ * type: 'highpass' で「カチッ」、'bandpass' で「シャッ」。from → to でフィルターの周波数を動かせる
+ */
+function filteredNoise(type: BiquadFilterType, from: number, to: number, dur: number, gain: number, q = 1, delay = 0): void {
+  const out = sound.output()
+  if (!out || sound.settings.muted) return
+  const { ctx } = out
+  const t = ctx.currentTime + delay
+  const src = ctx.createBufferSource()
+  src.buffer = noiseOf(ctx)
+  const f = ctx.createBiquadFilter()
+  f.type = type
+  f.Q.value = q
+  f.frequency.setValueAtTime(from, t)
+  f.frequency.exponentialRampToValueAtTime(to, t + dur)
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.003)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  src.connect(f).connect(g).connect(out.out)
+  src.start(t)
+  src.stop(t + dur + 0.02)
 }
 
 export const typingSounds = {
+  /**
+   * 打鍵: 3 つの音を重ねて「押した手応え」を出す。
+   *   カチッ  高い帯域のごく短いノイズ（キーが底に当たる音）
+   *   コトッ  中くらいの帯域のノイズ（キーの胴が鳴る音）
+   *   ドン    すぐ下がる低い音（指に返ってくる重さ）
+   * その上に、コンボで音階が上がる短い音を小さくのせる（10 コンボごとに、きらっと高い音）。
+   */
   key(combo: number) {
-    const step = Math.min(14, Math.floor(combo / 4))
-    sound.tone({ freq: pentaNote(step) * 2, dur: 0.06, type: 'triangle', gain: 0.07 })
+    const step = Math.min(14, Math.floor(combo / 3))
+    const f = scaleNote(step) * 2
+    filteredNoise('highpass', 6500, 4200, 0.02, 0.32, 0.8)
+    filteredNoise('bandpass', 1500, 700, 0.055, 0.34, 1.6)
+    sound.tone({ freq: 210, to: 65, dur: 0.075, type: 'sine', gain: 0.24 })
+    sound.tone({ freq: f, dur: 0.09, type: 'sine', gain: 0.045 })
+    if (combo > 0 && combo % 10 === 0) {
+      sound.tone({ freq: f * 3, dur: 0.25, type: 'sine', gain: 0.05, delay: 0.03 })
+      sound.tone({ freq: f * 4, dur: 0.3, type: 'sine', gain: 0.04, delay: 0.07 })
+    }
   },
+  /** まちがい: 鈍い「ゴッ」と、こもった短いノイズ */
   miss() {
-    sound.tone({ freq: 110, to: 90, dur: 0.12, type: 'square', gain: 0.06 })
+    sound.tone({ freq: 95, to: 55, dur: 0.12, type: 'square', gain: 0.05 })
+    filteredNoise('lowpass', 900, 300, 0.08, 0.12)
   },
+  /** 狙いを定めた: 刀を構えたような、短く上がる「シュッ」 */
   lock() {
-    sound.tone({ freq: 880, dur: 0.04, type: 'sine', gain: 0.04 })
+    filteredNoise('bandpass', 1800, 6000, 0.09, 0.08, 2)
   },
+  /** 倒した: 斬撃の「シャッ」→ 低い「ドン」→ 光に還る鐘の和音 */
   kill(boss: boolean) {
-    // 光に戻る: きらきらした上りの分散和音
-    const notes = boss ? [0, 4, 7, 12, 16, 19, 24] : [0, 4, 7, 12]
-    notes.forEach((n, i) => sound.tone({ freq: sound.note(3 + n), dur: boss ? 0.9 : 0.35, type: 'sine', gain: 0.09, delay: i * (boss ? 0.09 : 0.05) }))
-    sound.noise({ dur: 0.25, gain: 0.04, filter: 6000 })
+    filteredNoise('bandpass', 7000, 900, boss ? 0.35 : 0.18, boss ? 0.3 : 0.22, 1.5)
+    sound.tone({ freq: 110, to: 40, dur: boss ? 0.6 : 0.25, type: 'sine', gain: boss ? 0.25 : 0.14 })
+    const notes = boss ? [0, 7, 12, 15, 19, 24, 27] : [0, 7, 12, 15]
+    notes.forEach((n, i) => {
+      const f = sound.note(5 + n)
+      const delay = 0.04 + i * (boss ? 0.08 : 0.035)
+      sound.tone({ freq: f, dur: boss ? 1.4 : 0.6, type: 'sine', gain: 0.07, delay })
+      // 鐘らしさ: 少しずれた高い倍音を重ねる
+      sound.tone({ freq: f * 2.76, dur: boss ? 0.8 : 0.3, type: 'sine', gain: 0.02, delay })
+    })
   },
   hit(damage: number) {
     sound.tone({ freq: 140, to: 50, dur: 0.4, type: 'sawtooth', gain: 0.16 })
@@ -55,6 +117,16 @@ export const typingSounds = {
   },
   dead() {
     ;[0, -3, -7, -12].forEach((n, i) => sound.tone({ freq: sound.note(-5 + n), dur: 0.7, type: 'sine', gain: 0.1, delay: i * 0.25 }))
+  },
+  /** 忘れ神の鈴: 澄んだ高い音が、長く響く */
+  bell() {
+    ;[0, 7, 12, 19].forEach((n, i) => sound.tone({ freq: sound.note(15 + n), dur: 2.2 - i * 0.3, type: 'sine', gain: 0.1 - i * 0.015, delay: i * 0.02 }))
+    sound.tone({ freq: sound.note(15) * 2.76, dur: 1.2, type: 'sine', gain: 0.04 })
+  },
+  /** 森を歩く足音（1 歩ぶん。落ち葉を踏む） */
+  step() {
+    filteredNoise('lowpass', 700, 220, 0.08, 0.07)
+    filteredNoise('highpass', 3200, 2400, 0.04, 0.025, 1, 0.015)
   },
   /** 物語の文字送り */
   page() {
@@ -99,4 +171,78 @@ export class ForestAmbience {
     this.hum?.stop()
     this.wind = this.hum = null
   }
+}
+
+
+/** 物語の効果音。台詞が出た瞬間に 1 回鳴らす */
+export const storySfx: Record<Sfx, () => void> = {
+  /** ひぐらし（夕暮れの「カナカナカナ…」） */
+  higurashi() {
+    for (let r = 0; r < 2; r++) {
+      for (let i = 0; i < 9; i++) {
+        const f = 4300 - i * 70
+        sound.tone({ freq: f, to: f * 0.92, dur: 0.06, type: 'triangle', gain: 0.03 * (1 - i / 11), delay: r * 1.3 + i * 0.085 })
+      }
+    }
+  },
+  /** 障子を勢いよく開ける */
+  door() {
+    filteredNoise('bandpass', 500, 1100, 0.35, 0.22, 1.2)
+    sound.tone({ freq: 120, to: 70, dur: 0.12, type: 'sine', gain: 0.18, delay: 0.33 })
+  },
+  /** 心臓の音（どくん、どくん） */
+  heartbeat() {
+    for (const base of [0, 0.85]) {
+      sound.tone({ freq: 62, to: 38, dur: 0.14, type: 'sine', gain: 0.32, delay: base })
+      sound.tone({ freq: 55, to: 36, dur: 0.12, type: 'sine', gain: 0.22, delay: base + 0.22 })
+    }
+  },
+  /** 強い風がざあっと吹き抜ける */
+  gust() {
+    filteredNoise('bandpass', 300, 1400, 1.6, 0.2, 0.8)
+  },
+  /** 落ち葉を踏んで歩く */
+  footsteps() {
+    for (let i = 0; i < 4; i++) {
+      filteredNoise('lowpass', 900, 250, 0.09, 0.16, 1, i * 0.45)
+      filteredNoise('highpass', 3500, 2500, 0.05, 0.05, 1, i * 0.45 + 0.02)
+    }
+  },
+  /** フクロウ（ほう、ほーう） */
+  owl() {
+    sound.tone({ freq: 430, to: 390, dur: 0.22, type: 'sine', gain: 0.1 })
+    sound.tone({ freq: 450, to: 360, dur: 0.55, type: 'sine', gain: 0.1, delay: 0.42 })
+  },
+  /** ランタンに火を灯す（ぼっ、ぱちぱち） */
+  ignite() {
+    filteredNoise('bandpass', 300, 2800, 0.35, 0.22, 1)
+    sound.tone({ freq: 180, to: 520, dur: 0.3, type: 'sine', gain: 0.06 })
+    for (let i = 0; i < 5; i++) filteredNoise('highpass', 4000, 3000, 0.02, 0.08, 1, 0.3 + Math.random() * 0.6)
+  },
+  /** 影のささやき（何を言っているか聞き取れない声） */
+  whisper() {
+    for (let i = 0; i < 6; i++) {
+      const f = 1400 + Math.random() * 2000
+      filteredNoise('bandpass', f, f * (0.8 + Math.random() * 0.4), 0.18, 0.07, 7, i * 0.16 + Math.random() * 0.05)
+    }
+  },
+  /** 地鳴り（大きな影の声・気配） */
+  rumble() {
+    sound.tone({ freq: 48, to: 34, dur: 2, type: 'sawtooth', gain: 0.12 })
+    sound.tone({ freq: 51, to: 36, dur: 2, type: 'sawtooth', gain: 0.08 })
+    filteredNoise('lowpass', 260, 90, 1.8, 0.2)
+  },
+  /** 水音（ぴちゃん） */
+  splash() {
+    sound.tone({ freq: 1300, to: 520, dur: 0.09, type: 'sine', gain: 0.08 })
+    filteredNoise('lowpass', 1800, 400, 0.25, 0.08, 1, 0.03)
+    sound.tone({ freq: 1500, to: 700, dur: 0.07, type: 'sine', gain: 0.04, delay: 0.5 })
+  },
+  bell() {
+    typingSounds.bell()
+  },
+  /** 羽ばたき */
+  flutter() {
+    for (let i = 0; i < 5; i++) filteredNoise('bandpass', 900, 500, 0.08, 0.14, 1.5, i * 0.11)
+  },
 }

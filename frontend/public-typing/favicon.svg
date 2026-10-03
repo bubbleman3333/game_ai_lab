@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 灯守のランタン -->
+  <rect width="64" height="64" rx="14" fill="#0a0e1c"/>
+  <circle cx="32" cy="36" r="20" fill="#ffb45a" opacity="0.25"/>
+  <path d="M22 18 L32 10 L42 18 Z" fill="#3a2a1e"/>
+  <rect x="21" y="18" width="22" height="28" rx="3" fill="#2a2018"/>
+  <rect x="25" y="22" width="14" height="20" rx="2" fill="#ffd27a"/>
+  <rect x="20" y="46" width="24" height="4" rx="2" fill="#3a2a1e"/>
+</svg>

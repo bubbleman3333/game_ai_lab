@@ -1,0 +1,8 @@
+{
+  // 灯守（タイピング）を単独のサイトとして配信する Cloudflare Worker（静的ファイルだけ。サーバーの処理は無い）。
+  // URL: https://himori-typing.rakunowa.workers.dev
+  // 公開: npm run deploy:typing（書き出してから wrangler deploy）
+  "name": "himori-typing",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "./dist-typing", "not_found_handling": "single-page-application" }
+}

@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:typing": "tsc -b && vite build -c vite.typing.config.ts && node scripts/finish-typing-build.mjs",
+    "deploy:typing": "npm run build:typing && npx wrangler@4 deploy -c typing.wrangler.jsonc"
   },
   "dependencies": {
     "react": "^19.2.8",

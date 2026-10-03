@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# 灯守を単独のサイトとして書き出したもの（npm run build:typing）
+dist-typing
+.wrangler
 *.local
 
 # Editor directories and files

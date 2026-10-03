@@ -37,7 +37,7 @@ src/
   games/racer/            レース（3D。three.js で描画。物理は Python 版と共通）→ games/racer/README.md
   games/ocean/            オーシャン・スイム（海を泳ぐ 3D。ルールは sim/、絵は scene/。AI 無し）→ games/ocean/README.md
   games/city/             シティ（GTA 風 3D オープンワールド。ブラウザだけで完結）→ games/city/README.md
-  games/typing/           灯守（物語つきタイピング。夜の森は three.js。セーブ 3 つ）→ games/typing/README.md
+  games/typing/           灯守（物語つきタイピング。夜の森は three.js。セーブ 3 つ。単独のサイトとしても公開: npm run deploy:typing）→ games/typing/README.md
   styles.css              色は CSS 変数で指定（暗い配色が基本。`:root[data-theme='light']` で明るい配色）
 ```
 依存の向き: `pages → components / game / ai → api / engine`（engine は何にも依存しない）。

@@ -38,25 +38,15 @@
 
 /* --- 物語 --- */
 .typing-story {
-  position: fixed; inset: 0; z-index: 20; overflow: hidden; cursor: pointer; user-select: none;
-  color: #f2f2f0; background: #04060c; --typing-accent: #ffc46b;
+  /* 後ろには 3D の森（ForestBackdrop）が見えている */
+  position: fixed; inset: 0; z-index: 3; overflow: hidden; cursor: pointer; user-select: none;
+  color: #f2f2f0; background: transparent;
   display: flex; flex-direction: column; justify-content: flex-end; padding: 16px;
 }
 .typing-story-sky {
+  /* 文字を読みやすくするため、下だけ暗くする */
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 30% 10%, rgba(80, 100, 160, 0.35), transparent 60%),
-              linear-gradient(#060a18, #0b1420 60%, #05080a);
-}
-.typing-story-sky::after {
-  /* 木々のシルエット */
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 55%;
-  background:
-    radial-gradient(ellipse 8% 60% at 6% 100%, #020403 60%, transparent 61%),
-    radial-gradient(ellipse 7% 75% at 18% 100%, #020403 60%, transparent 61%),
-    radial-gradient(ellipse 9% 55% at 33% 100%, #030504 60%, transparent 61%),
-    radial-gradient(ellipse 6% 80% at 72% 100%, #020403 60%, transparent 61%),
-    radial-gradient(ellipse 8% 60% at 85% 100%, #030504 60%, transparent 61%),
-    radial-gradient(ellipse 7% 70% at 97% 100%, #020403 60%, transparent 61%);
+  background: linear-gradient(transparent 40%, rgba(2, 3, 8, 0.55) 75%, rgba(2, 3, 8, 0.8));
 }
 .typing-story-fireflies span {
   position: absolute; bottom: 10%; width: 5px; height: 5px; border-radius: 50%;
@@ -204,4 +194,244 @@
   .typing-score { font-size: 1.5rem; }
   .typing-boss { top: 110px; width: 80vw; }
   .typing-label-text { font-size: 1.1rem; }
+}
+
+/* --- メニューの外枠（夜の森の上に重ねる） --- */
+.typing-shell {
+  position: fixed; inset: 0; z-index: 20; overflow-y: auto; overflow-x: hidden; background: #04060c;
+  color: #f2f2f0; --text: #f2f2f0; --text-muted: #b9b8b0; --surface-1: rgba(12, 14, 24, 0.62);
+  --surface-2: rgba(30, 32, 44, 0.6); --border: rgba(255, 255, 255, 0.14);
+}
+.typing-backdrop { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.typing-shell-veil {
+  position: fixed; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(2, 3, 8, 0.55), rgba(2, 3, 8, 0.15) 45%, rgba(2, 3, 8, 0.15) 55%, rgba(2, 3, 8, 0.55));
+}
+.typing-shell-body { position: relative; padding: 36px 0 40px; }
+.typing-shell-bare { position: relative; min-height: 100%; }
+.typing-shell .card {
+  background: var(--surface-1); border-color: var(--border);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.typing-shell button { color: #f2f2f0; background: rgba(30, 32, 44, 0.7); border-color: rgba(255, 255, 255, 0.2); }
+.typing-shell button.primary { background: var(--typing-accent); color: #1a1410; border-color: transparent; box-shadow: 0 0 18px color-mix(in srgb, var(--typing-accent) 45%, transparent); }
+.typing-shell .typing-menu h1 { font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-size: 2rem; text-shadow: 0 0 18px rgba(255, 200, 120, 0.35); }
+.typing-home { position: fixed; top: 12px; left: 14px; z-index: 2; color: #d8d4c8; text-decoration: none; font-size: 0.85rem; opacity: 0.75; }
+.typing-home:hover { opacity: 1; }
+
+/* --- タイトル --- */
+.typing-title {
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 24px 16px; cursor: pointer; user-select: none;
+}
+.typing-title-logo {
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-weight: 800; letter-spacing: 0.12em;
+  font-size: clamp(4.5rem, 16vw, 10rem); line-height: 1.1; color: #fff7e6;
+  text-shadow: 0 0 12px rgba(255, 210, 140, 0.9), 0 0 40px rgba(255, 170, 80, 0.6), 0 0 90px rgba(255, 140, 40, 0.35);
+  animation: typing-title-in 2.4s ease-out both, typing-breathe 4s ease-in-out 2.4s infinite;
+}
+.typing-title-logo rt { font-size: 0.16em; letter-spacing: 0.6em; color: #ffd9a0; text-shadow: none; }
+@keyframes typing-title-in { from { opacity: 0; filter: blur(14px); transform: translateY(12px); } to { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes typing-breathe { 50% { text-shadow: 0 0 16px rgba(255, 220, 150, 1), 0 0 60px rgba(255, 170, 80, 0.75), 0 0 120px rgba(255, 140, 40, 0.45); } }
+.typing-title-sub {
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-size: clamp(1.1rem, 3vw, 1.6rem); letter-spacing: 0.4em;
+  color: #e8e2d0; margin-top: 4px; animation: typing-fade-in 2s ease-out 0.8s both;
+}
+.typing-title-tag { color: #c8c2b0; margin: 14px 0 34px; letter-spacing: 0.15em; animation: typing-fade-in 2s ease-out 1.4s both; }
+@keyframes typing-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.typing-title-prompt { position: relative; transform: none; padding: 10px 26px 12px; animation: typing-fade-in 1.4s ease-out 2s both; }
+.typing-title-prompt .typing-label-text { font-size: 1.8rem; }
+.typing-title-prompt .typing-label-roma { font-size: 1.4rem; letter-spacing: 0.12em; }
+.typing-title-prompt.shake { animation: typing-shake 0.3s; }
+@keyframes typing-shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.typing-title-hint { color: #b9b4a4; font-size: 0.9rem; margin-top: 14px; animation: typing-fade-in 1.4s ease-out 2.4s both; }
+.typing-title-foot { position: absolute; bottom: 18px; left: 0; right: 0; color: #8c887c; font-size: 0.78rem; letter-spacing: 0.1em; }
+.typing-title.lit .typing-title-logo { animation: typing-lit 0.9s ease-out forwards; }
+.typing-title.lit .typing-title-prompt { border-color: #c8ff6a; box-shadow: 0 0 40px rgba(200, 255, 106, 0.7); }
+@keyframes typing-lit { to { color: #fff; text-shadow: 0 0 30px #fff, 0 0 80px #ffd27a, 0 0 160px #ffaa40; transform: scale(1.06); } }
+
+/* --- 倒した言葉が光になって昇る --- */
+.typing-dissolve {
+  position: absolute; left: 0; top: 0; transform-origin: 50% 100%; white-space: nowrap; pointer-events: none;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-weight: 700; font-size: 1.35rem; padding: 6px 12px;
+}
+.typing-dissolve.boss { font-size: clamp(1.3rem, 3vw, 2rem); }
+.typing-dissolve span {
+  display: inline-block; color: #fffbe0;
+  text-shadow: 0 0 8px #c8ff6a, 0 0 22px #9aff40, 0 0 40px rgba(200, 255, 106, 0.7);
+  animation: typing-rise 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; animation-delay: calc(var(--i) * 0.05s);
+}
+@keyframes typing-rise {
+  0% { transform: none; opacity: 1; filter: blur(0); }
+  100% { transform: translate(var(--dx), -110px) scale(1.4); opacity: 0; filter: blur(4px); }
+}
+
+/* --- シェア --- */
+.typing-share { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.typing-share-x {
+  display: inline-flex; align-items: center; padding: 6px 16px; border-radius: 6px; text-decoration: none; font-weight: 700;
+  background: #000; color: #fff; border: 1px solid #555;
+}
+.typing-share-x:hover { border-color: #fff; }
+
+/* --- 物語: 時刻・目的・仲間になった --- */
+.typing-story-goal {
+  display: inline-block; margin-top: 14px; padding: 4px 16px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--typing-accent) 60%, transparent); color: var(--typing-accent);
+  font-size: 0.95rem; letter-spacing: 0.08em; background: rgba(4, 6, 12, 0.5);
+  animation: typing-fade-in 1.2s ease-out 0.6s both;
+}
+.typing-story-box.reward {
+  border-color: #ffd27a; text-align: center;
+  box-shadow: 0 0 40px rgba(255, 210, 122, 0.45), inset 0 0 30px rgba(255, 210, 122, 0.12);
+  animation: typing-reward 0.8s ease-out;
+}
+.typing-story-box.reward .typing-story-text { color: #fff3c8; font-weight: 700; text-shadow: 0 0 12px rgba(255, 210, 122, 0.8); }
+.typing-story-box.reward .typing-story-text::before { content: '✦ '; color: #ffd27a; }
+@keyframes typing-reward { from { transform: scale(0.94); box-shadow: 0 0 120px rgba(255, 230, 160, 0.9); } to { transform: none; } }
+
+/* --- 戦いの最中の台詞 --- */
+.typing-talk {
+  position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); max-width: min(720px, 92vw);
+  display: flex; gap: 12px; align-items: baseline; padding: 10px 18px; border-radius: 10px; pointer-events: none;
+  background: rgba(6, 8, 14, 0.78); border: 1px solid rgba(255, 255, 255, 0.16);
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; animation: typing-talk 4.8s ease-out forwards;
+}
+.typing-talk-who { flex: none; color: var(--typing-accent); font-weight: 700; }
+.typing-talk-text { font-size: 1.05rem; }
+@keyframes typing-talk { 0% { opacity: 0; transform: translate(-50%, 10px); } 8% { opacity: 1; transform: translateX(-50%); } 85% { opacity: 1; } 100% { opacity: 0; } }
+
+.typing-goal { font-size: 0.75rem; color: var(--typing-accent); opacity: 0.85; margin: -2px 0 6px; max-width: 260px; }
+.typing-bell { margin-top: 6px; font-size: 0.8rem; opacity: 0.5; }
+.typing-bell.ready { opacity: 1; color: #ffe2a0; animation: typing-pulse 1.2s ease-in-out infinite alternate; }
+.typing-bell kbd { font-size: 0.75rem; }
+
+/* --- 拠点: 時刻・目的・仲間 --- */
+.typing-next-hour { font-size: 0.85rem; color: var(--typing-accent); letter-spacing: 0.1em; }
+.typing-next-goal { margin: 6px 0 2px; font-weight: 700; }
+.typing-allies { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.typing-ally {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px dashed var(--border); opacity: 0.7;
+}
+.typing-ally.have { opacity: 1; border-style: solid; border-color: color-mix(in srgb, #ffd27a 50%, transparent); box-shadow: 0 0 16px rgba(255, 210, 122, 0.15); }
+.typing-ally-icon { font-size: 1.5rem; line-height: 1; }
+.typing-ally:not(.have) .typing-ally-icon { color: #6a6658; }
+.typing-ally-name { font-weight: 700; }
+
+/* --- 単独のサイトのときの音の切り替え（Game AI Lab のメニューが無いため） --- */
+.typing-sound { position: fixed; top: 10px; right: 14px; z-index: 2; }
+.typing-sound .sound-control, .typing-pause-sound .sound-control { margin-left: 0; }
+.typing-pause-sound { display: flex; justify-content: center; margin: 8px 0; }
+
+/* 場面の見出し（― その夜 ― など）とあらすじ */
+.typing-story-box.scene { background: transparent; border-color: transparent; box-shadow: none; text-align: center; }
+.typing-story-box.scene .typing-story-text {
+  font-size: clamp(1.4rem, 3.4vw, 2rem); letter-spacing: 0.3em; color: #fff3d8;
+  text-shadow: 0 0 14px rgba(255, 210, 140, 0.7);
+}
+.typing-story-box.recap { border-color: rgba(160, 190, 255, 0.35); }
+.typing-story-box.recap .typing-story-text { color: #cfd8ee; font-size: clamp(0.95rem, 2.1vw, 1.1rem); }
+.typing-story-box.recap .typing-story-text::before { content: 'あらすじ　'; color: #9fb4e8; font-weight: 700; }
+
+/* 最初の戦いの操作の案内 */
+.typing-tutorial {
+  position: absolute; left: 50%; top: 58%; transform: translateX(-50%); text-align: center; pointer-events: none;
+  padding: 12px 22px; border-radius: 12px; background: rgba(10, 12, 24, 0.82); border: 1px solid var(--typing-accent);
+  box-shadow: 0 0 24px rgba(255, 200, 120, 0.3); animation: typing-fade-in 0.8s ease-out both;
+}
+.typing-tutorial b { color: var(--typing-accent); }
+.typing-tutorial .mono { font-size: 1.1rem; }
+
+/* --- 物語の臨場感 --- */
+/* 背景の森が切り替わるとき（場面転換）は、暗いところから浮かび上がる */
+.typing-backdrop { animation: typing-backdrop-in 1.6s ease-out both; }
+@keyframes typing-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+.typing-story-corner {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); color: #d8d2c0; font-size: 0.85rem;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; letter-spacing: 0.08em; opacity: 0.8; white-space: nowrap;
+}
+.typing-story-corner span { margin-left: 12px; color: var(--typing-accent); }
+.typing-story-goal { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); margin: 0; white-space: nowrap; font-size: 1.05rem; }
+
+/* 画面の演出 */
+.typing-story-fx { position: absolute; inset: 0; pointer-events: none; }
+.typing-story-fx.flash { background: #fff8e0; animation: typing-fx-flash 0.9s ease-out forwards; }
+@keyframes typing-fx-flash { from { opacity: 0.85; } to { opacity: 0; } }
+.typing-story-fx.dark { background: radial-gradient(ellipse at center, transparent 20%, rgba(0, 0, 0, 0.92) 75%); animation: typing-fx-dark 3.5s ease-in-out forwards; }
+@keyframes typing-fx-dark { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0.55; } }
+.typing-story-fx.shake { display: none; }
+.typing-story-box.shake { animation: typing-fx-shake 0.5s; }
+@keyframes typing-fx-shake {
+  10%, 50%, 90% { transform: translate(-10px, 3px); }
+  30%, 70% { transform: translate(10px, -3px); }
+}
+/* 揺れる行は、画面全体（背景の森ごと）も揺らす */
+.typing-shell:has(.typing-story-box.shake) .typing-backdrop { animation: typing-fx-shake 0.5s; }
+
+/* 影・森の不気味な声: 紫がかった文字が小刻みに震える */
+.typing-story-box.voice { border-color: rgba(150, 110, 255, 0.4); }
+.typing-story-box.voice .typing-story-who { background: #4a2a8a; color: #e8dcff; }
+.typing-story-box.voice .typing-story-text { color: #d6c8ff; text-shadow: 0 0 10px rgba(140, 100, 255, 0.7); animation: typing-tremble 0.18s steps(2) infinite; }
+@keyframes typing-tremble { 50% { transform: translate(0.6px, -0.6px); } }
+
+/* 飛びかかる前に力を溜めている影: 札が赤く脈打ち「！」が出る */
+.typing-label.danger { border-color: #ff3a2a; background: rgba(60, 6, 6, 0.85); animation: typing-danger 0.25s ease-in-out infinite alternate; }
+.typing-label.danger::before {
+  content: '！'; position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+  color: #ff4a3a; font-weight: 900; font-size: 1.4rem; text-shadow: 0 0 10px #ff2a1a;
+}
+@keyframes typing-danger { to { box-shadow: 0 0 22px rgba(255, 60, 40, 0.8); } }
+/* 硬い影（言葉 2 つ）: 札が石のような縁取り */
+.typing-label.armored { border: 2px solid #9a9488; }
+.typing-label.armored::after {
+  content: '× 2'; position: absolute; top: -10px; right: -10px; font-size: 0.75rem; padding: 1px 6px;
+  border-radius: 999px; background: #5a564e; color: #fff;
+}
+
+/* --- 文字を大きく（遠くの影でも読めるように） --- */
+.typing-label { padding: 8px 16px 9px; }
+.typing-label-text { font-size: 2rem; }
+.typing-label-kana { font-size: 1rem; }
+.typing-label-roma { font-size: 1.45rem; }
+.typing-label.boss .typing-label-text { font-size: clamp(1.7rem, 3.6vw, 2.6rem); }
+.typing-label.boss .typing-label-roma { font-size: clamp(1.25rem, 2.6vw, 1.7rem); }
+.typing-dissolve { font-size: 2rem; }
+.typing-story-text { font-size: clamp(1.25rem, 2.8vw, 1.65rem); }
+.typing-story-who { font-size: 1.05rem; }
+.typing-talk-text { font-size: 1.25rem; }
+.typing-talk { bottom: 168px; }
+.typing-flash { font-size: 1.2rem; }
+.typing-chapter-label { font-size: 1rem; }
+.typing-goal { font-size: 0.85rem; }
+.typing-sub { font-size: 0.95rem; }
+.typing-score { font-size: 2.4rem; }
+
+/* --- 画面下の「今打っている言葉」 --- */
+.typing-bar {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); pointer-events: none; text-align: center;
+  min-width: min(560px, 90vw); padding: 10px 28px 12px; border-radius: 14px;
+  background: rgba(6, 6, 14, 0.78); border: 1px solid var(--typing-accent);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--typing-accent) 30%, transparent);
+}
+.typing-bar.empty { display: none; }
+.typing-bar.idle { opacity: 0.6; border-color: rgba(255, 255, 255, 0.2); box-shadow: none; }
+.typing-bar-text { font-family: 'Yu Mincho', 'Hiragino Mincho ProN', serif; font-weight: 700; font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.2; }
+.typing-bar-roma { font-family: ui-monospace, Consolas, monospace; font-size: clamp(1.6rem, 3.6vw, 2.4rem); letter-spacing: 0.06em; color: #8c887c; word-break: break-all; }
+.typing-bar-roma .typed { color: var(--typing-accent); text-shadow: 0 0 12px color-mix(in srgb, var(--typing-accent) 70%, transparent); }
+.typing-bar-roma .next { color: #fff; text-decoration: underline; text-decoration-color: var(--typing-accent); text-underline-offset: 6px; }
+.typing-bar-roma > span:last-child { color: #e8e4d8; }
+.typing-bar-pop { animation: typing-bar-pop 0.09s ease-out; }
+@keyframes typing-bar-pop { from { transform: translateX(-50%) scale(1.05); } to { transform: translateX(-50%) scale(1); } }
+.typing-bar-miss { animation: typing-bar-miss 0.22s; }
+@keyframes typing-bar-miss {
+  0% { border-color: #ff4a3a; transform: translateX(calc(-50% - 7px)); }
+  40% { transform: translateX(calc(-50% + 7px)); }
+  100% { transform: translateX(-50%); }
+}
+.typing-combo { bottom: 150px; }
+@media (max-width: 640px) {
+  .typing-label-text { font-size: 1.5rem; }
+  .typing-label-roma { font-size: 1.15rem; }
 }

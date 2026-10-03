@@ -8,29 +8,81 @@
 // 向き: プレイヤー（カメラ）は原点に立ち、+z（森の奥）を向いている。影は奥から近づいてくる。
 // 歩いている感じは「木やホタルを手前へ流し、後ろへ消えたら奥へ戻す」ことで出している
 // （地面は模様が無いので動かさなくてよい）。
+//
+// 光らせ方: 描いた絵にブルーム（明るいところをにじませる後処理）を掛けている。
+// 影の目・ホタル・ランタン・月・光の筋は明るさが 1 を超える色にしてあり、それがにじんで光って見える。
+// スマホなど小さい画面では重いのでブルームを切る（quality = 'low'）。
+//
+// update() に game を渡さない（null）と「タイトル画面の森」になる。ゆっくり歩き、遠くに影が何体か漂う。
 
 import * as THREE from 'three'
-import { type Enemy, type GameEvent, MAX_OIL, type TypingGame } from '../sim/game'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import type { Behavior } from '../sim/chapters'
+import { type Enemy, type EnemyKind, type GameEvent, MAX_OIL, type TypingGame } from '../sim/game'
+import { Mist } from './mist'
 import { AmbientFireflies, Particles } from './particles'
-import { disposeTextures, foxFireTexture, glowTexture, moonTexture, shadeBodyTexture, shadeEyesTexture } from './textures'
+import { createShadeMaterial, SHAPE_SCALE, type ShadeMaterial, type ShapeName } from './shade'
+import { disposeTextures, foxFireTexture, glowTexture, moonTexture } from './textures'
 import { type Theme, themeFor } from './themes'
 
 const EYE_HEIGHT = 1.6
 /** 木を並べる奥行き（m）。これより奥へ行ったら手前に戻す */
 const TREE_RANGE = 130
 const FIREFLY = 0xc8ff6a
-const EYE_IDLE = new THREE.Color(0xffe9a8)
-const EYE_LOCK = new THREE.Color(0xff5a3a)
+/** 光の筋（打つたびにランタンから狙った影へ飛ぶ）の数。使い回す */
+const BEAMS = 10
+const BEAM_LIFE = 0.16
+
+export type Quality = 'high' | 'low'
+
+/** 描くのに要る、影 1 体ぶんの値（ゲームの影でも、タイトル画面の飾りの影でもよい） */
+interface Shown {
+  id: number
+  kind: EnemyKind
+  x: number
+  z: number
+  behavior?: Behavior
+  state?: Enemy['state']
+}
+
+/**
+ * 動き方ごとの見た目（どの影が何をしてくるか、形で見分けられるように）。
+ * walk（まっすぐ来る影）だけは章ごとの候補（themes.ts の shades）から選ぶ。
+ */
+const BEHAVIOR_SHAPES: Partial<Record<Behavior, ShapeName[]>> = {
+  creep: ['tall', 'longNeck'],
+  hop: ['umbrella'],
+  lunge: ['oni'],
+  blink: ['foxMask', 'oneEye'],
+  zigzag: ['jelly', 'tengu'],
+  ambush: ['serpent', 'cat'],
+  tank: ['wall'],
+  split: ['twins'],
+  mini: ['cat', 'kodama'],
+}
 
 interface EnemyModel {
   group: THREE.Group
-  body: THREE.Sprite
-  eyes: THREE.Sprite | null
-  kind: Enemy['kind']
+  body: THREE.Mesh | THREE.Sprite
+  /** 影とボスのシェーダー（狐火は null） */
+  mat: ShadeMaterial | null
+  kind: EnemyKind
   size: number
   /** 打たれた・傷ついたときに一瞬ふくらむ */
   pulse: number
+  /** 傷ついたときに一瞬白く光る */
+  flash: number
   bob: number
+  /** 狙われ具合（0〜1。なめらかに変える） */
+  lock: number
+}
+
+interface Beam {
+  mesh: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>
+  life: number
 }
 
 interface Scenery {
@@ -38,6 +90,14 @@ interface Scenery {
   z: number
   s: number
   r: number
+}
+
+/** 小さい画面・タッチの端末ではブルームを切る（重いため） */
+export function defaultQuality(): Quality {
+  if (typeof window === 'undefined') return 'low'
+  const small = Math.min(window.innerWidth, window.innerHeight) < 600
+  const touch = window.matchMedia?.('(pointer: coarse)').matches
+  return small || touch ? 'low' : 'high'
 }
 
 export class ForestScene {
@@ -54,11 +114,30 @@ export class ForestScene {
   private trunks: THREE.InstancedMesh
   private crowns: THREE.InstancedMesh
   private mushrooms: { items: Scenery[]; mesh: THREE.InstancedMesh } | null = null
+  /** 足もとの草と石（歩くと後ろへ流れ、進んでいる感じを出す） */
+  private grass: { items: Scenery[]; mesh: THREE.InstancedMesh }
+  private stones: { items: Scenery[]; mesh: THREE.InstancedMesh }
+  /** 足音を鳴らすための歩みの位相（stepTaken() で 1 歩ごとに true を返す） */
+  private stride = 0
+  private stepPending = false
   private torii: THREE.Group[] = []
   private stoneLanterns: THREE.Group[] = []
   private fireflies: AmbientFireflies
-  private particles = new Particles(1400)
+  private particles = new Particles(1600)
+  private mist: Mist
   private models = new Map<number, EnemyModel>()
+  private shadeGeo = new THREE.PlaneGeometry(1, 1)
+  private beams: Beam[] = []
+  private nextBeam = 0
+  private composer: EffectComposer | null = null
+  /** 鈴を鳴らしたときに地面を広がる光の輪 */
+  private bellRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>
+  private bellTime = -1
+  /** タイトル画面で遠くを漂う飾りの影 */
+  private decor: (Shown & { phase: number; baseX: number; baseZ: number })[] = []
+  /** 形を決め打ちする影（確認用の一覧 showGallery で使う） */
+  private forcedShape = new Map<number, ShapeName>()
+  private gallery = false
   private time = 0
   private shake = 0
   private walkSpeed = 0
@@ -67,10 +146,11 @@ export class ForestScene {
   private tmpV = new THREE.Vector3()
   private tmpC = new THREE.Color()
 
-  constructor(canvas: HTMLCanvasElement, themeId: string) {
+  constructor(canvas: HTMLCanvasElement, themeId: string, quality: Quality = defaultQuality()) {
     this.theme = themeFor(themeId)
     const t = this.theme
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // ブルームを使うときは描き先の MSAA でギザギザを消すので、ここでのアンチエイリアスは要らない
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'low' })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.scene.fog = new THREE.FogExp2(t.fog, t.fogDensity)
@@ -97,11 +177,11 @@ export class ForestScene {
       moon.position.set(-40, 75, 220)
       moon.scale.setScalar(t.moonSize * 6)
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowTexture(), color: t.moon, fog: false, depthWrite: false, transparent: true, opacity: 0.35,
+        map: glowTexture(), color: t.moon, fog: false, depthWrite: false, transparent: true, opacity: 0.3,
         blending: THREE.AdditiveBlending,
       }))
       halo.position.copy(moon.position)
-      halo.scale.setScalar(t.moonSize * 22)
+      halo.scale.setScalar(t.moonSize * 18)
       this.scene.add(halo, moon)
     }
 
@@ -119,6 +199,10 @@ export class ForestScene {
     this.lanternCore = lantern.core
     this.lanternGlow = lantern.glow
     this.camera.add(lantern.group)
+    if (t.noLantern) {
+      lantern.group.visible = false
+      this.lanternLight.visible = false
+    }
 
     // --- 地面と道 ---
     this.scene.add(this.buildGround())
@@ -137,6 +221,9 @@ export class ForestScene {
     this.scene.add(this.trunks, this.crowns)
 
     if (t.props.mushrooms) this.mushrooms = this.buildMushrooms()
+    // 足もとの草（道の両わき）と、道に転がる小石
+    this.grass = this.buildScatter(520, 1.6, 12, new THREE.ConeGeometry(0.05, 0.4, 3), new THREE.MeshLambertMaterial({ color: new THREE.Color(t.foliage).multiplyScalar(1.6) }), 0.6, 1.5)
+    this.stones = this.buildScatter(140, 0, 3, new THREE.DodecahedronGeometry(0.09, 0), new THREE.MeshLambertMaterial({ color: 0x5a5a56 }), 0.6, 1.6)
     if (t.props.torii) {
       for (let i = 0; i < 5; i++) {
         const g = this.buildTorii()
@@ -154,8 +241,56 @@ export class ForestScene {
       }
     }
 
-    this.fireflies = new AmbientFireflies(150, FIREFLY)
+    // --- 地面の霧・ホタル・光の粒 ---
+    this.mist = new Mist(new THREE.Color(t.fog).lerp(new THREE.Color(0x8a9ab8), 0.35), t.mist)
+    this.scene.add(this.mist.group)
+    this.fireflies = new AmbientFireflies(180, FIREFLY)
     this.scene.add(this.fireflies.points, this.particles.points)
+
+    // --- 光の筋: 細い円柱を使い回す。色は 1 を超える明るさにしてブルームで光らせる ---
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)
+    for (let i = 0; i < BEAMS; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(t.lantern).multiplyScalar(3), transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      })
+      const mesh = new THREE.Mesh(beamGeo, mat)
+      mesh.visible = false
+      this.scene.add(mesh)
+      this.beams.push({ mesh, life: 0 })
+    }
+
+    // --- 鈴の光の輪（ふだんは隠しておく） ---
+    this.bellRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.85, 1, 72),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0xffe2a0).multiplyScalar(2.5), transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      }),
+    )
+    this.bellRing.rotation.x = -Math.PI / 2
+    this.bellRing.position.y = 0.4
+    this.bellRing.visible = false
+    this.scene.add(this.bellRing)
+
+    // --- タイトル画面用の飾りの影（ゲーム中は出さない） ---
+    const decorCount = t.decor ?? 4
+    for (let i = 0; i < decorCount; i++) {
+      const baseX = (i - 1.5) * 4.5 + (Math.random() - 0.5) * 2
+      const baseZ = 17 + Math.random() * 10
+      this.decor.push({ id: -1 - i, kind: 'shade', x: baseX, z: baseZ, baseX, baseZ, phase: Math.random() * 10 })
+    }
+
+    if (quality === 'high') {
+      // ブルームのために一度別の画像へ描く。描き先を MSAA（4 倍のサンプル）つきにして輪郭のギザギザを消す
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2())
+      const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 })
+      this.composer = new EffectComposer(this.renderer, target)
+      this.composer.addPass(new RenderPass(this.scene, this.camera))
+      // 強さ・広がり・しきい値（これより明るいところだけにじむ）
+      this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(512, 512), 0.85, 0.55, 0.62))
+      this.composer.addPass(new OutputPass())
+    }
     this.placeScenery(0)
   }
 
@@ -204,7 +339,7 @@ export class ForestScene {
   private buildLantern(): { group: THREE.Group; core: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>; glow: THREE.Sprite } {
     const group = new THREE.Group()
     const frameMat = new THREE.MeshLambertMaterial({ color: 0x2a2018 })
-    const core = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.12), new THREE.MeshBasicMaterial({ color: this.theme.lantern }))
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.12), new THREE.MeshBasicMaterial({ color: this.theme.lantern, fog: false }))
     group.add(core)
     for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       const bar = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.2, 0.015), frameMat)
@@ -230,6 +365,19 @@ export class ForestScene {
     return { group, core, glow }
   }
 
+  /** 道のまわりに小物をばらまく（minX〜maxX の範囲。0 なら道の上も含む） */
+  private buildScatter(n: number, minX: number, maxX: number, geo: THREE.BufferGeometry, mat: THREE.Material,
+                       sMin: number, sMax: number): { items: Scenery[]; mesh: THREE.InstancedMesh } {
+    const items: Scenery[] = []
+    for (let i = 0; i < n; i++) {
+      const side = Math.random() < 0.5 ? -1 : 1
+      items.push({ x: side * (minX + Math.random() * (maxX - minX)), z: Math.random() * 60 - 6, s: sMin + Math.random() * (sMax - sMin), r: Math.random() * Math.PI })
+    }
+    const mesh = new THREE.InstancedMesh(geo, mat, n)
+    this.scene.add(mesh)
+    return { items, mesh }
+  }
+
   private buildMushrooms(): { items: Scenery[]; mesh: THREE.InstancedMesh } {
     const n = 70
     const items: Scenery[] = []
@@ -237,9 +385,10 @@ export class ForestScene {
       const side = Math.random() < 0.5 ? -1 : 1
       items.push({ x: side * (2.4 + Math.random() * 6), z: Math.random() * TREE_RANGE - 6, s: 0.6 + Math.random() * 0.8, r: 0 })
     }
+    // 光るキノコ（1 を超える色でブルームが掛かる）
     const mesh = new THREE.InstancedMesh(
       new THREE.SphereGeometry(0.09, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x6affd8 }), n)
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6affd8).multiplyScalar(1.6) }), n)
     this.scene.add(mesh)
     return { items, mesh }
   }
@@ -266,7 +415,7 @@ export class ForestScene {
     const stone = new THREE.MeshLambertMaterial({ color: 0x5a5a54 })
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.9, 6), stone)
     post.position.y = 0.45
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.4), new THREE.MeshBasicMaterial({ color: 0xffa040 }))
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.4), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(1.5) }))
     box.position.y = 1.06
     const roof = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.3, 4), stone)
     roof.position.y = 1.36
@@ -280,32 +429,33 @@ export class ForestScene {
     return g
   }
 
-  private buildEnemy(e: Enemy): EnemyModel {
+  private buildEnemy(e: Shown): EnemyModel {
     const group = new THREE.Group()
-    let body: THREE.Sprite
-    let eyes: THREE.Sprite | null = null
+    let body: THREE.Mesh | THREE.Sprite
+    let mat: ShadeMaterial | null = null
     let size: number
     if (e.kind === 'fox') {
       size = 1.1
       body = new THREE.Sprite(new THREE.SpriteMaterial({
         map: foxFireTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+        color: new THREE.Color(1.4, 1.7, 2.4), // 1 を超える明るさ → ブルームで青白く燃える
       }))
       body.scale.set(size, size * 1.4, 1)
     } else {
-      size = e.kind === 'boss' ? 7.5 : 2.1
-      body = new THREE.Sprite(new THREE.SpriteMaterial({ map: shadeBodyTexture(), transparent: true, depthWrite: false }))
+      // 形は章ごとの候補から選ぶ（id から決めるので、同じ影の形が途中で変わらない）
+      const t = this.theme
+      const pick = (list: readonly ShapeName[]) => list[Math.abs(e.id * 7919) % list.length]
+      const byBehavior = e.behavior ? BEHAVIOR_SHAPES[e.behavior] : undefined
+      const shape: ShapeName = this.forcedShape.get(e.id)
+        ?? (e.kind === 'boss' ? t.bossShape : byBehavior ? pick(byBehavior) : pick(t.shades))
+      size = (e.kind === 'boss' ? 8.5 : 2.3) * (SHAPE_SCALE[shape] ?? 1)
+      mat = createShadeMaterial(shape, t.shadeAura, t.fog, t.fogDensity)
+      body = new THREE.Mesh(this.shadeGeo, mat)
       body.scale.setScalar(size)
-      eyes = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: shadeEyesTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
-        color: e.kind === 'boss' ? 0xff4a3a : EYE_IDLE,
-      }))
-      eyes.scale.setScalar(size)
-      eyes.position.z = -0.01
-      group.add(eyes)
     }
     group.add(body)
     this.scene.add(group)
-    return { group, body, eyes, kind: e.kind, size, pulse: 0, bob: Math.random() * 10 }
+    return { group, body, mat, kind: e.kind, size, pulse: 0, flash: 0, bob: Math.random() * 10, lock: 0 }
   }
 
   // ------------------------------------------------------------------ 毎フレーム
@@ -345,40 +495,62 @@ export class ForestScene {
       })
       this.mushrooms.mesh.instanceMatrix.needsUpdate = true
     }
+    // 草と石は近くにだけ置き、60m で一周させる（遠くは霧で見えない）
+    for (const sc of [this.grass, this.stones]) {
+      sc.items.forEach((m, i) => {
+        m.z -= walked
+        if (m.z < -6) m.z += 60
+        d.position.set(m.x, sc === this.grass ? 0.15 * m.s : 0.03, m.z)
+        d.rotation.set(sc === this.grass ? (m.r - 1.5) * 0.15 : m.r, m.r, 0)
+        d.scale.setScalar(m.s)
+        d.updateMatrix()
+        sc.mesh.setMatrixAt(i, d.matrix)
+      })
+      sc.mesh.instanceMatrix.needsUpdate = true
+    }
     for (const g of [...this.torii, ...this.stoneLanterns]) {
       g.position.z -= walked
       if (g.position.z < -8) g.position.z += this.torii.includes(g) ? 26 * this.torii.length : 14 * (this.stoneLanterns.length / 2)
     }
   }
 
-  update(dt: number, game: TypingGame): void {
+  update(dt: number, game: TypingGame | null): void {
     this.time += dt
-    // 影がいないあいだは奥へ歩き、影がいるときは足を止めぎみにする
-    const targetWalk = game.over ? 0 : game.enemies.length === 0 ? 2.4 : 0.35
+    // 影がいないあいだは奥へ歩き、影がいるときは足を止めぎみにする。タイトル画面ではゆっくり歩き続ける
+    const targetWalk = !game ? 0.9 : game.over ? 0 : game.enemies.length === 0 ? 3.4 : 1.2
     this.walkSpeed += (targetWalk - this.walkSpeed) * Math.min(1, dt * 1.5)
     const walked = this.walkSpeed * dt
     this.placeScenery(walked)
 
     // ランタン: 油が少ないほど暗く、コンボが続くほど明るい。ゆらゆら揺れる
-    const oil = game.oil / MAX_OIL
-    const comboBoost = Math.min(1, game.combo / 60)
+    const oil = game ? game.oil / MAX_OIL : 1
+    const comboBoost = game ? Math.min(1, game.combo / 60) : 0.3
     const flick = 0.9 + 0.1 * Math.sin(this.time * 13) * Math.sin(this.time * 7.3)
     const level = (0.35 + 0.65 * oil) * (1 + comboBoost * 0.8) * flick
     this.lanternLight.intensity = 14 * level
     this.lanternLight.distance = 20 + 14 * comboBoost
     this.lanternGlow.scale.setScalar(0.3 + 0.25 * level)
-    this.lanternCore.material.color.set(this.theme.lantern).multiplyScalar(0.5 + 0.5 * Math.min(1.3, level))
+    this.lanternCore.material.color.set(this.theme.lantern).multiplyScalar(0.9 + 1.3 * level)
 
     // カメラ: 歩くと少し上下し、襲われると揺れる
     this.shake = Math.max(0, this.shake - dt * 2.5)
-    const bob = Math.sin(this.time * 6) * 0.04 * Math.min(1, this.walkSpeed)
+    // 歩みの位相: 速く歩くほど歩幅の周期も速い。1 歩ごとに足音の合図を出す
+    const prevStride = this.stride
+    this.stride += dt * (2.2 + this.walkSpeed * 0.9)
+    if (Math.floor(this.stride / Math.PI) !== Math.floor(prevStride / Math.PI) && this.walkSpeed > 0.5) this.stepPending = true
+    const walkAmt = Math.min(1, this.walkSpeed / 2)
+    const bob = -Math.abs(Math.sin(this.stride)) * 0.07 * walkAmt
+    const roll = Math.sin(this.stride) * 0.012 * walkAmt
     const sx = (Math.random() - 0.5) * this.shake * 0.5, sy = (Math.random() - 0.5) * this.shake * 0.5
     this.camera.position.set(sx, EYE_HEIGHT + bob + sy, 0)
-    this.camera.lookAt(sx * 0.5, EYE_HEIGHT - 0.1 + bob, 10)
+    // タイトル画面では、あたりを見回すようにゆっくり視線を動かす
+    const look = game ? 0 : Math.sin(this.time * 0.13) * 2.2
+    this.camera.lookAt(sx * 0.5 + look + Math.sin(this.stride) * 0.12 * walkAmt, EYE_HEIGHT - 0.1 + bob + (game ? 0 : 0.6), 10)
+    this.camera.rotateZ(roll)
 
     // 終章: ボスを削るほど空が明けていく
     const t = this.theme
-    if (t.dawnTop !== undefined && t.dawnBottom !== undefined) {
+    if (game && t.dawnTop !== undefined && t.dawnBottom !== undefined) {
       const boss = game.boss
       const goal = game.result === 'clear' ? 1
         : boss?.phrases ? (boss.phraseIndex ?? 0) / boss.phrases.length * 0.8 : 0
@@ -390,75 +562,182 @@ export class ForestScene {
       this.hemi.intensity = 1.1 + this.dawn * 1.5
     }
 
-    this.syncEnemies(dt, game)
-    this.fireflies.update(dt, walked, game.result === 'clear' ? 1 : 0.55 + 0.45 * comboBoost)
+    if (game) {
+      this.syncEnemies(dt, game.enemies, game.target?.id ?? null)
+    } else {
+      // 飾りの影: 遠くで左右に漂い、ときどき少し近づいてはまた離れる（一覧のときは止めておく）
+      for (const d of this.gallery ? [] : this.decor) {
+        d.phase += dt
+        d.x = d.baseX + Math.sin(d.phase * 0.4) * 1.5
+        d.z = d.baseZ + Math.sin(d.phase * 0.23) * 3
+      }
+      this.syncEnemies(dt, this.decor, null)
+    }
+    this.mist.update(dt, walked)
+    this.updateBeams(dt)
+    this.updateBell(dt)
+    this.fireflies.update(dt, walked, game?.result === 'clear' ? 1 : 0.6 + 0.4 * comboBoost)
     this.particles.update(dt)
-    this.renderer.render(this.scene, this.camera)
+    if (this.composer) this.composer.render(dt)
+    else this.renderer.render(this.scene, this.camera)
   }
 
-  private syncEnemies(dt: number, game: TypingGame): void {
+  private syncEnemies(dt: number, list: readonly Shown[], targetId: number | null): void {
     const alive = new Set<number>()
-    for (const e of game.enemies) {
+    for (const e of list) {
       alive.add(e.id)
       let m = this.models.get(e.id)
       if (!m) {
         m = this.buildEnemy(e)
         this.models.set(e.id, m)
+        if (e.behavior === 'ambush') {
+          this.particles.burst(this.tmpV.set(e.x, 0.8, e.z), { count: 50, color: 0x3a8a3a, speed: 3.5, life: 1.2, size: 0.3, lift: -1 })
+        }
       }
       m.bob += dt
       m.pulse = Math.max(0, m.pulse - dt * 4)
-      const y = e.kind === 'boss' ? 3.4 : e.kind === 'fox' ? 1.3 : 1.25
+      m.flash = Math.max(0, m.flash - dt * 5)
+      m.lock += ((e.id === targetId ? 1 : 0) - m.lock) * Math.min(1, dt * 10)
+      const y = e.kind === 'boss' ? 3.6 : e.kind === 'fox' ? 1.3 : 1.35
       m.group.position.set(e.x, y + Math.sin(m.bob * 2) * (e.kind === 'fox' ? 0.25 : 0.12), e.z)
-      const s = m.size * (1 + m.pulse * 0.18)
-      if (m.kind === 'fox') m.body.scale.set(s, s * 1.4 * (1 + Math.sin(m.bob * 15) * 0.06), 1)
-      else m.body.scale.setScalar(s)
-      if (m.eyes) {
-        m.eyes.scale.setScalar(s)
-        if (m.kind !== 'boss') m.eyes.material.color.copy(game.target === e ? EYE_LOCK : EYE_IDLE)
-        // 近いほど目が強く光る
-        m.eyes.material.opacity = Math.min(1, 0.4 + (1 - e.z / 30) * 0.9)
+      const s = m.size * (1 + m.pulse * 0.15)
+      if (m.kind === 'fox') {
+        m.body.scale.set(s, s * 1.4 * (1 + Math.sin(m.bob * 15) * 0.06), 1)
+      } else {
+        // 板をいつもカメラへ向ける（ビルボード）
+        m.body.quaternion.copy(this.camera.quaternion)
+        m.body.scale.setScalar(s)
+      }
+      if (m.mat) {
+        const u = m.mat.uniforms
+        u.uTime.value = this.time
+        // 力を溜めている影は、狙われていなくても目が赤く脈打つ（これから飛びかかってくる合図）
+        const windup = e.state === 'windup' ? 0.6 + 0.4 * Math.sin(this.time * 18) : 0
+        u.uLock.value = Math.max(m.lock, windup)
+        u.uFlash.value = Math.max(m.flash, e.state === 'windup' ? 0.12 : 0)
+        u.uFogColor.value.copy((this.scene.fog as THREE.FogExp2).color)
       }
     }
     for (const [id, m] of this.models) {
       if (!alive.has(id)) {
         this.scene.remove(m.group)
-        m.body.material.dispose()
-        m.eyes?.material.dispose()
+        ;(m.body.material as THREE.Material).dispose()
         this.models.delete(id)
       }
     }
   }
 
-  /** 出来事に合わせた演出（光の粒・画面の揺れ） */
-  handleEvents(events: GameEvent[], game: TypingGame): void {
+  private updateBeams(dt: number): void {
+    for (const b of this.beams) {
+      if (b.life <= 0) continue
+      b.life -= dt
+      const k = Math.max(0, b.life / BEAM_LIFE)
+      b.mesh.material.opacity = k
+      b.mesh.scale.x = b.mesh.scale.z = 0.012 + 0.03 * k
+      if (b.life <= 0) b.mesh.visible = false
+    }
+  }
+
+  private updateBell(dt: number): void {
+    if (this.bellTime < 0) return
+    this.bellTime += dt
+    const k = this.bellTime / 1.2
+    if (k >= 1) {
+      this.bellTime = -1
+      this.bellRing.visible = false
+      return
+    }
+    // 足もとから森の奥へ、光の輪が広がっていく
+    this.bellRing.scale.setScalar(1 + k * 34)
+    this.bellRing.material.opacity = (1 - k) ** 1.5
+  }
+
+  /** ランタンから to へ光の筋を飛ばす */
+  private shootBeam(to: THREE.Vector3): void {
+    const from = this.lanternGlow.getWorldPosition(new THREE.Vector3())
+    const b = this.beams[this.nextBeam]
+    this.nextBeam = (this.nextBeam + 1) % this.beams.length
+    const dir = to.clone().sub(from)
+    const len = dir.length()
+    b.mesh.position.copy(from).addScaledVector(dir, 0.5)
+    b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
+    b.mesh.scale.set(0.04, len, 0.04)
+    b.mesh.visible = true
+    b.life = BEAM_LIFE
+  }
+
+  /** 出来事に合わせた演出（光の筋・光の粒・画面の揺れ） */
+  handleEvents(events: GameEvent[]): void {
     for (const ev of events) {
       switch (ev.kind) {
         case 'key': {
           const m = this.models.get(ev.id)
           if (m) {
             m.pulse = 1
-            this.particles.burst(m.group.position, { count: 2, color: 0xffd27a, speed: 1.2, life: 0.5, size: 0.2, lift: 0 })
+            m.flash = 0.25
+            this.shootBeam(m.group.position)
+            this.particles.burst(m.group.position, { count: 4, color: 0xffd27a, speed: 1.6, life: 0.5, size: 0.22, lift: 0 })
           }
           break
         }
         case 'kill': {
-          const at = this.tmpV.set(ev.x, ev.enemy === 'boss' ? 3.4 : 1.3, ev.z)
           const boss = ev.enemy === 'boss'
-          this.particles.burst(at, { count: boss ? 420 : 48, color: FIREFLY, speed: boss ? 7 : 2.6, life: boss ? 5 : 2.6, size: boss ? 0.5 : 0.35, lift: 0.8 })
-          this.particles.burst(at, { count: boss ? 80 : 12, color: 0xffffff, speed: boss ? 9 : 3.5, life: 0.6, size: 0.3, lift: 0 })
+          const at = this.tmpV.set(ev.x, boss ? 3.6 : 1.35, ev.z)
+          this.particles.burst(at, { count: boss ? 450 : 56, color: FIREFLY, speed: boss ? 7 : 2.8, life: boss ? 5 : 2.8, size: boss ? 0.5 : 0.35, lift: 0.8 })
+          this.particles.burst(at, { count: boss ? 90 : 14, color: 0xffffff, speed: boss ? 9 : 3.8, life: 0.6, size: 0.3, lift: 0 })
           break
         }
         case 'boss-hurt': {
           const m = this.models.get(ev.id)
           if (m) {
             m.pulse = 2
-            this.particles.burst(m.group.position, { count: 90, color: FIREFLY, speed: 5, life: 3, size: 0.4, lift: 0.8 })
+            m.flash = 1
+            this.shake = 0.5
+            this.particles.burst(m.group.position, { count: 100, color: FIREFLY, speed: 5, life: 3, size: 0.4, lift: 0.8 })
           }
           break
         }
         case 'hit':
           this.shake = ev.damage > 1 ? 1.4 : 0.9
           break
+        case 'dash': {
+          const m = this.models.get(ev.id)
+          this.shake = Math.max(this.shake, 0.35)
+          if (m) this.particles.burst(m.group.position, { count: 30, color: 0xff5a3a, speed: 4, life: 0.5, size: 0.3, lift: 0 })
+          break
+        }
+        case 'blink': {
+          // 消えた場所と、現れた場所に紫の煙
+          this.particles.burst(this.tmpV.set(ev.x, 1.35, ev.fromZ), { count: 30, color: 0x9a6aff, speed: 2, life: 0.8, size: 0.35, lift: 0.4 })
+          this.particles.burst(this.tmpV.set(ev.x, 1.35, ev.toZ), { count: 30, color: 0xc8a0ff, speed: 2.5, life: 0.7, size: 0.35, lift: 0.4 })
+          break
+        }
+        case 'ambush': {
+          // 茂みから飛び出す: 葉っぱが散って、画面が少し揺れる
+          const m = this.models.get(ev.id)
+          this.shake = Math.max(this.shake, 0.5)
+          if (m) m.flash = 1
+          break
+        }
+        case 'armor': {
+          const m = this.models.get(ev.id)
+          if (m) {
+            m.flash = 1
+            m.pulse = 2
+            this.particles.burst(m.group.position, { count: 40, color: 0xb0a898, speed: 3.5, life: 0.9, size: 0.3, lift: -1.5 })
+          }
+          break
+        }
+        case 'bell': {
+          this.bellTime = 0
+          this.bellRing.visible = true
+          this.shake = 0.4
+          for (const m of this.models.values()) {
+            m.flash = 1
+            this.particles.burst(m.group.position, { count: 24, color: 0xffe2a0, speed: 3, life: 1.2, size: 0.3, lift: 0.3 })
+          }
+          break
+        }
         case 'heal': {
           const at = this.lanternGlow.getWorldPosition(this.tmpV)
           this.particles.burst(at, { count: 40, color: 0xffc860, speed: 1.6, life: 1.4, size: 0.12, lift: 0.4 })
@@ -466,14 +745,41 @@ export class ForestScene {
         }
       }
     }
-    void game
+  }
+
+  /** 1 歩踏み出したか（足音を鳴らすため。呼ぶと合図は消える） */
+  stepTaken(): boolean {
+    const s = this.stepPending
+    this.stepPending = false
+    return s
+  }
+
+  /** 打鍵の手応え: カメラをほんの少し揺らす */
+  kick(amount = 0.06): void {
+    this.shake = Math.max(this.shake, amount)
+  }
+
+  /**
+   * 確認用: 影の形を目の前に並べる（タイトルの森を `#shades` 付きで開くと呼ばれる）。
+   * シェーダー（shade.ts）の形を直したときに、全部の形を一度に見比べるためのもの。
+   */
+  showGallery(shapes: readonly ShapeName[]): void {
+    this.gallery = true
+    this.decor = shapes.map((shape, i) => {
+      const id = -100 - i
+      this.forcedShape.set(id, shape)
+      const cols = 5
+      const x = ((i % cols) - (cols - 1) / 2) * -2.7 // 右が -x なので、左から右へ並ぶよう符号を反転
+      const z = 8 + Math.floor(i / cols) * 5
+      return { id, kind: 'shade' as const, x, z, baseX: x, baseZ: z, phase: 0 }
+    })
   }
 
   /** 影の頭の上（言葉の札を出す場所）の画面上の位置。後ろ・画面外なら null */
   labelPosition(e: Enemy, width: number, height: number): { x: number; y: number } | null {
     const m = this.models.get(e.id)
-    const top = e.kind === 'boss' ? 7.6 : e.kind === 'fox' ? 2.3 : 2.5
-    const v = this.tmpV.set(e.x, (m ? m.group.position.y - (e.kind === 'boss' ? 3.4 : 1.25) : 0) + top, e.z)
+    const top = e.kind === 'boss' ? 8.2 : e.kind === 'fox' ? 2.3 : 2.7
+    const v = this.tmpV.set(e.x, (m ? m.group.position.y - (e.kind === 'boss' ? 3.6 : 1.35) : 0) + top, e.z)
     v.project(this.camera)
     if (v.z > 1) return null
     return { x: (v.x * 0.5 + 0.5) * width, y: (-v.y * 0.5 + 0.5) * height }
@@ -484,6 +790,7 @@ export class ForestScene {
     const w = canvas.clientWidth, h = canvas.clientHeight
     if (!w || !h) return
     this.renderer.setSize(w, h, false)
+    this.composer?.setSize(w, h)
     this.camera.aspect = w / h
     // 縦長の画面（スマホ）では横が狭くなるので、画角を広げて影が画面に収まるようにする
     this.camera.fov = w < h ? 80 : 62
@@ -491,6 +798,7 @@ export class ForestScene {
   }
 
   dispose(): void {
+    for (const m of this.models.values()) (m.body.material as THREE.Material).dispose()
     this.scene.traverse((o) => {
       const mesh = o as THREE.Mesh
       if (mesh.geometry) mesh.geometry.dispose()
@@ -500,6 +808,7 @@ export class ForestScene {
     })
     this.particles.dispose()
     this.fireflies.dispose()
+    this.composer?.dispose()
     disposeTextures()
     this.renderer.dispose()
   }

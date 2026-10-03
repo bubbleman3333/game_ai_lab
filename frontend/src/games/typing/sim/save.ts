@@ -6,8 +6,8 @@
 //
 // 形を変えたら SAVE_VERSION を上げ、migrate() で古い形を読めるようにする（遊んでいる人のセーブを消さないため）。
 
-import { CHAPTERS, type Chapter, ENDLESS } from './chapters'
-import type { Difficulty } from './game'
+import { type AllyId, CHAPTERS, type Chapter, ENDLESS } from './chapters'
+import { type Difficulty, NO_PERKS, type Perks } from './game'
 
 export const SAVE_VERSION = 1
 export const SLOT_COUNT = 3
@@ -57,6 +57,22 @@ export function storyFinished(s: SaveData): boolean {
 /** 今の章（物語が終わっていれば null） */
 export function currentChapter(s: SaveData): Chapter | null {
   return CHAPTERS[s.chapter] ?? null
+}
+
+/** 助け出した仲間（クリアした章で助けた者）。物語の順に並ぶ */
+export function alliesOf(s: SaveData): AllyId[] {
+  return CHAPTERS.filter((c) => c.rescue && s.cleared.includes(c.id)).map((c) => c.rescue!)
+}
+
+/** 仲間がくれる力。遊び直しの章でも、今いる仲間の力を使える */
+export function perksOf(s: SaveData): Perks {
+  const allies = alliesOf(s)
+  return {
+    maxOil: NO_PERKS.maxOil + (allies.includes('ruri') ? 1 : 0),
+    healCombo: allies.includes('mio') ? 20 : NO_PERKS.healCombo,
+    revealBonus: allies.includes('kuro') ? 6 : 0,
+    bell: allies.includes('bell'),
+  }
 }
 
 /** 遊び直せる章（クリアした章と、今の章）。終わらない夜は物語を終えてから */

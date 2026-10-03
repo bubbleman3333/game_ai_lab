@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { CHAPTERS, ENDLESS, FAST_WORDS } from './chapters'
-import { MAX_OIL, REACH_Z, TypingGame } from './game'
+import { BELL_PUSH, MAX_OIL, NO_PERKS, REACH_Z, TypingGame } from './game'
 import { RomajiMatcher, romanize, toChunks } from './romaji'
-import { advanceLine, exportSave, finishPart, newSave, parseSave, playableChapters, recordResult, storyFinished } from './save'
+import { advanceLine, alliesOf, exportSave, finishPart, newSave, parseSave, perksOf, playableChapters, recordResult, storyFinished } from './save'
 
 /** 文字列を 1 文字ずつ打って、全部正解だったか */
 function typeAll(m: RomajiMatcher, s: string): boolean {
@@ -204,5 +204,110 @@ describe('セーブ', () => {
     expect(parseSave(exportSave(s))).toEqual(s)
     expect(() => parseSave('こんにちは')).toThrow('JSON')
     expect(() => parseSave('{"foo":1}')).toThrow('必要な項目')
+  })
+})
+
+describe('物語と仲間', () => {
+  it('波ごとの声とボスの本音が、波・言葉と同じ数だけある', () => {
+    for (const c of CHAPTERS) {
+      expect(c.waveLines.length, c.title).toBe(c.waves.length)
+      if (c.boss) expect(c.boss.reactions.length, c.title).toBe(c.boss.phrases.length)
+    }
+  })
+
+  it('章をクリアするたびに仲間が増え、力が強くなる', () => {
+    let s = newSave()
+    expect(perksOf(s)).toEqual(NO_PERKS)
+    const ids: string[] = []
+    for (const c of CHAPTERS) {
+      ids.push(c.id)
+      s = { ...s, cleared: [...ids] }
+    }
+    expect(alliesOf(s)).toEqual(['kuro', 'ruri', 'bell', 'mio'])
+    expect(perksOf(s)).toEqual({ maxOil: MAX_OIL + 1, healCombo: 20, revealBonus: 6, bell: true })
+  })
+
+  it('鈴は 1 回だけ鳴らせて、影を押し戻す', () => {
+    const g = new TypingGame(CHAPTERS[0], 'normal', 7, { ...NO_PERKS, bell: true })
+    for (let i = 0; i < 400 && !g.enemies.some((e) => e.z < 15); i++) g.update(0.05)
+    const e = g.enemies[0]
+    const z = e.z
+    expect(g.ringBell()).toEqual([{ kind: 'bell' }])
+    expect(e.z).toBeCloseTo(Math.min(30, z + BELL_PUSH))
+    expect(g.ringBell()).toEqual([])
+  })
+
+  it('ミオの歌があると 20 打で油が戻る', () => {
+    const g = new TypingGame(CHAPTERS[0], 'normal', 8, { ...NO_PERKS, healCombo: 20 })
+    g.oil = 3
+    let healed = false
+    for (let i = 0; i < 4000 && !healed && !g.over; i++) {
+      g.update(0.05)
+      const e = g.target ?? [...g.enemies].sort((a, b) => a.z - b.z)[0]
+      if (e && e.z < 14) for (const ch of e.matcher.rest) if (g.key(ch).some((ev) => ev.kind === 'heal')) healed = true
+    }
+    expect(healed).toBe(true)
+    expect(g.stats.maxCombo).toBeGreaterThanOrEqual(20)
+    expect(g.stats.maxCombo).toBeLessThan(30)
+  })
+})
+
+describe('影の動き方', () => {
+  /** その動き方の影だけが出る章を作る */
+  const only = (behavior: string) => ({ ...CHAPTERS[0], behaviors: { [behavior]: 1 } })
+  const firstEnemy = (g: TypingGame) => {
+    for (let i = 0; i < 400 && g.enemies.length === 0; i++) g.update(0.05)
+    return g.enemies[0]
+  }
+  const finish = (g: TypingGame, e: { matcher: { rest: string } }) => { for (const ch of e.matcher.rest) g.key(ch) }
+
+  it('飛びかかる影は、途中で止まって溜めてから、いきなり飛びかかる', () => {
+    const g = new TypingGame(only('lunge'), 'normal', 11)
+    const e = firstEnemy(g)
+    const kinds: string[] = []
+    let stoppedAt = 0
+    for (let i = 0; i < 600 && g.enemies.includes(e); i++) {
+      for (const ev of g.update(0.05)) {
+        kinds.push(ev.kind)
+        if (ev.kind === 'windup') stoppedAt = e.z
+      }
+    }
+    expect(kinds).toContain('windup')
+    expect(kinds).toContain('dash')
+    expect(stoppedAt).toBeLessThanOrEqual(11)
+    expect(kinds).toContain('hit')
+  })
+
+  it('いきなり出てくる影は、目の前の近くに現れる', () => {
+    const g = new TypingGame(only('ambush'), 'normal', 12)
+    const e = firstEnemy(g)
+    expect(e.z).toBeGreaterThan(11.5)
+    expect(e.z).toBeLessThanOrEqual(12)
+  })
+
+  it('硬い影は言葉を 2 つ打たないと倒れない', () => {
+    const g = new TypingGame(only('tank'), 'normal', 13)
+    const e = firstEnemy(g)
+    finish(g, e)
+    expect(g.enemies).toContain(e)
+    expect(e.hp).toBe(1)
+    finish(g, e)
+    expect(g.enemies).not.toContain(e)
+  })
+
+  it('分かれる影は、倒すと小さな影 2 体になる', () => {
+    const g = new TypingGame(only('split'), 'normal', 14)
+    const e = firstEnemy(g)
+    finish(g, e)
+    expect(g.enemies.filter((x) => x.behavior === 'mini')).toHaveLength(2)
+  })
+
+  it('消える影は、ときどき近くへ現れる', () => {
+    const g = new TypingGame(only('blink'), 'normal', 15)
+    const e = firstEnemy(g)
+    let blinked = false
+    for (let i = 0; i < 200 && !blinked; i++) for (const ev of g.update(0.05)) if (ev.kind === 'blink') blinked = true
+    expect(blinked).toBe(true)
+    expect(e.z).toBeLessThan(30)
   })
 })

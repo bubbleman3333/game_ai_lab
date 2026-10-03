@@ -9,8 +9,11 @@
 // 狙いの決まり方:
 //   - 誰も狙っていないとき、打ったキーで始まる影のうち、いちばん近いものを狙う
 //   - 狙った影は、打ち終えるまで変わらない（Backspace で狙いを外せる → release()）
+//
+// 仲間の力（Perks）: 物語で助けた仲間が力を貸してくれる（油の上限・霧の見える距離・油が戻る打数・鈴）。
+// どの仲間がいるかはセーブで決まる（save.ts の perksOf）。鈴は ringBell() で鳴らす。
 
-import { CHAPTERS, type Chapter, ENDLESS, FAST_WORDS, type Wave, type Word } from './chapters'
+import { type Behavior, CHAPTERS, type Chapter, ENDLESS, FAST_WORDS, type Wave, type Word } from './chapters'
 import { RomajiMatcher } from './romaji'
 import { Rng } from './rng'
 
@@ -22,8 +25,31 @@ export const BOSS_KNOCKBACK = 7
 export const MAX_OIL = 5
 /** このコンボごとに油が 1 戻る */
 export const HEAL_COMBO = 30
+/** 鈴を鳴らすと影が押し戻される距離（m）。ボスはこの半分 */
+export const BELL_PUSH = 11
+
+/** 仲間がくれる力 */
+export interface Perks {
+  maxOil: number
+  healCombo: number
+  /** 霧の章で、言葉が読める距離を何 m 伸ばすか */
+  revealBonus: number
+  /** 鈴を持っているか（戦いごとに 1 回鳴らせる） */
+  bell: boolean
+}
+
+export const NO_PERKS: Perks = { maxOil: MAX_OIL, healCombo: HEAL_COMBO, revealBonus: 0, bell: false }
 /** 狐火の速さ（ふつうの影の何倍か） */
 export const FAST_MUL = 1.7
+/** 飛びかかる影（lunge）が足を止めて力を溜める距離（m）と時間（秒）、飛びかかる速さ（m/秒） */
+export const LUNGE_Z = 11
+export const LUNGE_WINDUP = 1.4
+export const LUNGE_SPEED = 16
+/** いきなり出てくる影（ambush）が現れる距離（m） */
+export const AMBUSH_Z = 12
+/** 消える影（blink）が何秒ごとに、何 m 先へ現れるか */
+export const BLINK_EVERY = 2.6
+export const BLINK_JUMP = 5
 
 /** 難しさ。影が目の前に来るまでの時間に掛ける */
 export const DIFFICULTIES = {
@@ -47,6 +73,14 @@ export interface Enemy {
   /** 左右の揺れの基準位置と位相 */
   baseX: number
   phase: number
+  /** 動き方（chapters.ts の Behavior）。狐火とボスは 'walk' */
+  behavior: Behavior
+  /** lunge の段階: move 近づく → windup 溜める → dash 飛びかかる */
+  state: 'move' | 'windup' | 'dash'
+  /** 動きに使う時計（秒） */
+  timer: number
+  /** あと何個の言葉で倒れるか（tank は 2、ほかは 1） */
+  hp: number
   /** ボスだけ: なくした言葉の一覧と、今いくつ目か */
   phrases?: Word[]
   phraseIndex?: number
@@ -64,6 +98,13 @@ export type GameEvent =
   | { kind: 'wave'; index: number; total: number }
   | { kind: 'boss'; name: string }
   | { kind: 'boss-hurt'; id: number; left: number; score: number }
+  | { kind: 'bell' }
+  | { kind: 'windup'; id: number }
+  | { kind: 'dash'; id: number }
+  | { kind: 'blink'; id: number; x: number; fromZ: number; toZ: number }
+  | { kind: 'ambush'; id: number }
+  | { kind: 'armor'; id: number }
+  | { kind: 'split'; id: number }
   | { kind: 'clear' }
   | { kind: 'dead' }
 
@@ -95,7 +136,10 @@ export class TypingGame {
   readonly endless: boolean
   enemies: Enemy[] = []
   target: Enemy | null = null
-  oil = MAX_OIL
+  readonly perks: Perks
+  oil: number
+  /** 残りの鈴の回数 */
+  bells: number
   score = 0
   combo = 0
   time = 0
@@ -116,7 +160,10 @@ export class TypingGame {
   private summonTimer = 0
   private bossSpawned = false
 
-  constructor(chapter: Chapter, difficulty: Difficulty = 'normal', seed = Date.now()) {
+  constructor(chapter: Chapter, difficulty: Difficulty = 'normal', seed = Date.now(), perks: Perks = NO_PERKS) {
+    this.perks = perks
+    this.oil = perks.maxOil
+    this.bells = perks.bell ? 1 : 0
     this.chapter = chapter
     this.difficulty = difficulty
     this.endless = chapter.id === ENDLESS.id
@@ -151,7 +198,7 @@ export class TypingGame {
 
   /** 言葉が読めるか（霧の章では、近づくまで読めない。読めない影は狙えない） */
   isVisible(e: Enemy): boolean {
-    return e.kind === 'boss' || this.chapter.reveal <= 0 || e.z <= this.chapter.reveal
+    return e.kind === 'boss' || this.chapter.reveal <= 0 || e.z <= this.chapter.reveal + this.perks.revealBonus
   }
 
   /** 今の波の設定（終わらない夜は波ごとに作る） */
@@ -191,16 +238,116 @@ export class TypingGame {
     return best
   }
 
-  private spawn(kind: EnemyKind, events: GameEvent[], z = SPAWN_Z): Enemy {
-    const word = this.pickWord(kind === 'fox' ? FAST_WORDS : this.pool())
+  /** 章の重みに従って、影の動き方を選ぶ */
+  private pickBehavior(): Behavior {
+    const entries = Object.entries(this.chapter.behaviors) as [Behavior, number][]
+    const total = entries.reduce((a, [, w]) => a + w, 0)
+    let r = this.rng.next() * total
+    for (const [b, w] of entries) {
+      r -= w
+      if (r <= 0) return b
+    }
+    return 'walk'
+  }
+
+  /** 短い言葉（すばやく打たないといけない影に使う）。ローマ字で max 文字まで */
+  private shortPool(max: number): Word[] {
+    const list = this.pool().filter((w) => new RomajiMatcher(w.kana).length <= max)
+    return list.length >= 3 ? list : FAST_WORDS
+  }
+
+  private spawn(kind: EnemyKind, events: GameEvent[], opts: { z?: number; x?: number; behavior?: Behavior } = {}): Enemy {
+    const behavior: Behavior = kind === 'fox' ? 'walk' : opts.behavior ?? this.pickBehavior()
+    const z = opts.z ?? (behavior === 'ambush' ? AMBUSH_Z : SPAWN_Z)
+    const pool = kind === 'fox' ? FAST_WORDS
+      : behavior === 'ambush' || behavior === 'mini' ? this.shortPool(6)
+        : behavior === 'lunge' ? this.shortPool(10)
+          : this.pool()
+    const word = this.pickWord(pool)
     const matcher = new RomajiMatcher(word.kana)
-    let speed = (z - REACH_Z) / this.travelTime(matcher.length)
+    const time = this.travelTime(matcher.length)
+    let speed = (z - REACH_Z) / time
+    switch (behavior) {
+      case 'lunge':
+        // 溜める時間のぶん、近づくのは少し速い。止まって溜めたあと一気に飛びかかる
+        speed = (z - LUNGE_Z) / Math.max(1.5, time - LUNGE_WINDUP - 0.6)
+        break
+      case 'ambush': speed = (z - REACH_Z) / Math.max(2.2, time * 0.85); break
+      case 'mini': speed = (z - REACH_Z) / Math.max(2.2, time * 0.75); break
+      case 'creep': speed /= 1.1; break // 平均の速さがふつうの影と同じになるように
+      case 'blink': speed *= 0.55; break // 消えて近づくぶん、歩くのは遅い
+      case 'tank': speed *= 0.72; break // 言葉が 2 つあるぶん遅い
+    }
     if (kind === 'fox') speed *= FAST_MUL
-    const baseX = this.rng.range(-3.2, 3.2)
-    const e: Enemy = { id: this.nextId++, kind, word, matcher, x: baseX, z, speed, baseX, phase: this.rng.range(0, Math.PI * 2) }
+    const baseX = opts.x ?? this.rng.range(-3.2, 3.2)
+    const e: Enemy = {
+      id: this.nextId++, kind, word, matcher, x: baseX, z, speed, baseX, phase: this.rng.range(0, Math.PI * 2),
+      behavior, state: 'move', timer: 0, hp: behavior === 'tank' ? 2 : 1,
+    }
     this.enemies.push(e)
     events.push({ kind: 'spawn', id: e.id, enemy: kind })
+    if (behavior === 'ambush') events.push({ kind: 'ambush', id: e.id })
     return e
+  }
+
+  /** 影を 1 体ぶん動かす（動き方ごと） */
+  private move(e: Enemy, dt: number, events: GameEvent[]): void {
+    e.timer += dt
+    if (e.kind === 'boss') {
+      e.z -= e.speed * dt
+      return
+    }
+    let v = e.speed
+    let swayAmp = this.chapter.sway
+    let swayRate = e.kind === 'fox' ? 3.2 : 1.1
+    switch (e.behavior) {
+      case 'creep': {
+        // 遠くではゆっくり、近づくほど速く
+        const k = 1 - Math.max(0, Math.min(1, (e.z - REACH_Z) / (SPAWN_Z - REACH_Z)))
+        v = e.speed * (0.5 + 1.2 * k)
+        break
+      }
+      case 'hop':
+        // 跳ねて進み、止まる（平均の速さは同じ）
+        v = e.speed * Math.PI * Math.max(0, Math.sin(e.timer * 2.6))
+        swayAmp *= 0.3
+        break
+      case 'zigzag':
+        swayAmp = 2.6
+        swayRate = 1.6
+        break
+      case 'blink':
+        if (e.timer >= BLINK_EVERY && e.z > LUNGE_Z - 2) {
+          e.timer = 0
+          const fromZ = e.z
+          e.z = Math.max(6, e.z - BLINK_JUMP)
+          e.baseX = Math.max(-3.4, Math.min(3.4, e.baseX + this.rng.range(-2.5, 2.5)))
+          events.push({ kind: 'blink', id: e.id, x: e.baseX, fromZ, toZ: e.z })
+        }
+        break
+      case 'lunge':
+        if (e.state === 'move') {
+          if (e.z <= LUNGE_Z) {
+            e.state = 'windup'
+            e.timer = 0
+            events.push({ kind: 'windup', id: e.id })
+          }
+        } else if (e.state === 'windup') {
+          v = 0
+          swayAmp *= 0.15
+          if (e.timer >= LUNGE_WINDUP) {
+            e.state = 'dash'
+            events.push({ kind: 'dash', id: e.id })
+          }
+        } else {
+          v = LUNGE_SPEED
+          swayAmp = 0
+        }
+        break
+    }
+    e.z -= v * dt
+    e.phase += dt * swayRate
+    e.x = e.baseX + Math.sin(e.phase) * swayAmp
   }
 
   private spawnBoss(events: GameEvent[]): void {
@@ -209,6 +356,7 @@ export class TypingGame {
     const e: Enemy = {
       id: this.nextId++, kind: 'boss', word, matcher: new RomajiMatcher(word.kana),
       x: 0, z: BOSS_Z, speed: 0, baseX: 0, phase: 0, phrases: def.phrases, phraseIndex: 0,
+      behavior: 'walk', state: 'move', timer: 0, hp: def.phrases.length,
     }
     e.speed = this.bossSpeed(e)
     this.enemies.push(e)
@@ -271,11 +419,7 @@ export class TypingGame {
 
     // --- 影が近づく ---
     for (const e of [...this.enemies]) {
-      e.z -= e.speed * dt
-      if (e.kind !== 'boss') {
-        e.phase += dt * (e.kind === 'fox' ? 3.2 : 1.1)
-        e.x = e.baseX + Math.sin(e.phase) * this.chapter.sway
-      }
+      this.move(e, dt, events)
       if (e.z <= REACH_Z) this.hit(e, events)
       if (this.over) break
     }
@@ -340,7 +484,7 @@ export class TypingGame {
     this.stats.maxCombo = Math.max(this.stats.maxCombo, this.combo)
     this.score += Math.round(10 * this.multiplier)
     events.push({ kind: 'key', id: t.id, combo: this.combo })
-    if (this.combo % HEAL_COMBO === 0 && this.oil < MAX_OIL) {
+    if (this.combo % this.perks.healCombo === 0 && this.oil < this.perks.maxOil) {
       this.oil++
       events.push({ kind: 'heal' })
     }
@@ -377,15 +521,43 @@ export class TypingGame {
       this.target = null
       return
     }
+    // 硬い影: 1 つ目の言葉で殻が割れ、少し押し戻されて 2 つ目の言葉が出る
+    if (t.behavior === 'tank' && t.hp > 1) {
+      t.hp--
+      t.word = this.pickWord(this.shortPool(8))
+      t.matcher = new RomajiMatcher(t.word.kana)
+      t.z = Math.min(SPAWN_Z, t.z + 3)
+      this.target = null
+      this.score += Math.round(60 * mul)
+      events.push({ kind: 'armor', id: t.id })
+      return
+    }
     // 遠くで倒すほど少し多くもらえる
     const gain = Math.round((40 * t.word.kana.length + t.z * 4) * mul)
     this.score += gain
     this.stats.kills++
     events.push({ kind: 'kill', id: t.id, x: t.x, z: t.z, enemy: t.kind, score: gain })
     this.remove(t)
+    // 分かれる影: 小さな影 2 体になって、左右から来る
+    if (t.behavior === 'split') {
+      events.push({ kind: 'split', id: t.id })
+      for (const dx of [-1.3, 1.3]) {
+        this.spawn('shade', events, { z: Math.max(t.z, 7), x: Math.max(-3.6, Math.min(3.6, t.x + dx)), behavior: 'mini' })
+      }
+    }
   }
 
   /** 狙いを外す（Backspace）。打ちかけた分は最初から */
+  /** 鈴を鳴らす（Space）。影をまとめて押し戻し、狙いを外す。鳴らせなければ何も起きない */
+  ringBell(): GameEvent[] {
+    if (this.over || this.bells <= 0) return []
+    this.bells--
+    for (const e of this.enemies) {
+      e.z = Math.min(e.kind === 'boss' ? BOSS_Z : SPAWN_Z, e.z + (e.kind === 'boss' ? BELL_PUSH / 2 : BELL_PUSH))
+    }
+    return [{ kind: 'bell' }]
+  }
+
   release(): GameEvent[] {
     const t = this.target
     if (!t || this.over) return []

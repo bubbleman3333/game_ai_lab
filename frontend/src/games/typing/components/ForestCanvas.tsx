@@ -13,11 +13,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GameEvent, TypingGame } from '../sim/game'
 import { ForestScene } from '../scene/ForestScene'
+import { GameMusic } from '../music'
 import { ForestAmbience, typingSounds } from '../sounds'
 
 /** HUD に出すための、その瞬間の値 */
 export interface Snapshot {
   oil: number
+  maxOil: number
+  /** 残りの鈴の回数（鈴を持っていなければ null） */
+  bells: number | null
   score: number
   combo: number
   multiplier: number
@@ -33,7 +37,7 @@ export interface Snapshot {
 export function snapshotOf(game: TypingGame): Snapshot {
   const b = game.boss
   return {
-    oil: game.oil, score: game.score, combo: game.combo, multiplier: game.multiplier,
+    oil: game.oil, maxOil: game.perks.maxOil, bells: game.perks.bell ? game.bells : null, score: game.score, combo: game.combo, multiplier: game.multiplier,
     wave: game.waveIndex, totalWaves: game.totalWaves,
     boss: b && b.phrases ? { name: game.chapter.boss?.name ?? '', left: b.phrases.length - (b.phraseIndex ?? 0), total: b.phrases.length } : null,
     result: game.result, time: game.time, kpm: game.kpm, accuracy: game.accuracy,
@@ -64,6 +68,7 @@ function playEvent(ev: GameEvent): void {
     case 'wave': return typingSounds.wave()
     case 'boss': return typingSounds.boss()
     case 'boss-hurt': return typingSounds.bossHurt()
+    case 'bell': return typingSounds.bell()
     case 'clear': return typingSounds.clear()
     case 'dead': return typingSounds.dead()
   }
@@ -94,6 +99,56 @@ function makeLabel(parent: HTMLElement, boss: boolean): Label {
   el.append(text, kana, roma)
   parent.append(el)
   return { el, text, kana, typed, rest, key: '' }
+}
+
+interface Bar {
+  el: HTMLDivElement
+  text: HTMLDivElement
+  typed: HTMLSpanElement
+  next: HTMLSpanElement
+  rest: HTMLSpanElement
+  key: string
+}
+
+function makeBar(parent: HTMLElement): Bar {
+  const el = document.createElement('div')
+  el.className = 'typing-bar empty'
+  const text = document.createElement('div')
+  text.className = 'typing-bar-text'
+  const roma = document.createElement('div')
+  roma.className = 'typing-bar-roma'
+  const typed = document.createElement('span')
+  typed.className = 'typed'
+  const next = document.createElement('span')
+  next.className = 'next'
+  const rest = document.createElement('span')
+  roma.append(typed, next, rest)
+  el.append(text, roma)
+  parent.append(el)
+  return { el, text, typed, next, rest, key: '' }
+}
+
+/** CSS のアニメーションを、もう一度最初から流す（同じクラスを付け直しても再生されないため） */
+function pop(el: HTMLElement, cls: string): void {
+  el.classList.remove('typing-bar-pop', 'typing-bar-miss')
+  void el.offsetWidth // ここで一度描き直させると、次に付けたクラスのアニメーションが最初から流れる
+  el.classList.add(cls)
+}
+
+/** 倒した言葉の文字が 1 字ずつ光になって昇っていく（CSS のアニメーション。終わったら消す） */
+function dissolve(parent: HTMLElement, l: Label): void {
+  const el = document.createElement('div')
+  el.className = l.el.classList.contains('boss') ? 'typing-dissolve boss' : 'typing-dissolve'
+  el.style.transform = l.el.style.transform
+  ;[...(l.text.textContent ?? '')].forEach((ch, i) => {
+    const span = document.createElement('span')
+    span.textContent = ch
+    span.style.setProperty('--i', String(i))
+    span.style.setProperty('--dx', `${(Math.random() - 0.5) * 60}px`)
+    el.append(span)
+  })
+  parent.append(el)
+  setTimeout(() => el.remove(), 1600)
 }
 
 export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIme, inputRef }: Props) {
@@ -128,11 +183,43 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
 
     const ambience = new ForestAmbience()
     ambience.start()
+    // BGM: 最初の波で道中の曲を鳴らし、ボスが出たらボスの曲へ。言葉を返すほど盛り上げ、終わったら止める
+    let music: GameMusic | null = null
+    let bossMusic = false
+    const stopMusic = () => {
+      music?.stop()
+      music = null
+    }
 
     const emit = (events: GameEvent[]) => {
       if (!events.length) return
-      for (const ev of events) playEvent(ev)
-      scene.handleEvents(events, game)
+      for (const ev of events) {
+        playEvent(ev)
+        if (ev.kind === 'key') {
+          scene.kick(0.12)
+          pop(bar.el, 'typing-bar-pop')
+        } else if (ev.kind === 'miss') {
+          pop(bar.el, 'typing-bar-miss')
+        }
+        if (ev.kind === 'wave' && !music && !game.over) {
+          music = new GameMusic()
+          music.start()
+        } else if (ev.kind === 'boss') {
+          if (!music) {
+            music = new GameMusic()
+            music.start()
+          }
+          bossMusic = true
+          music.toBoss()
+        } else if (ev.kind === 'boss-hurt' && music) {
+          const total = game.chapter.boss?.phrases.length ?? 1
+          music.setIntensity((total - ev.left) / Math.max(1, total - 1))
+        } else if ((ev.kind === 'kill' && ev.enemy === 'boss') || ev.kind === 'clear' || ev.kind === 'dead') {
+          stopMusic()
+        }
+      }
+      scene.handleEvents(events)
+      for (const ev of events) if (ev.kind === 'kill') killed.add(ev.id)
       cb.current.onEvents(events)
     }
 
@@ -148,6 +235,11 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         return
       }
       if (pausedRef.current || game.over || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === ' ') {
+        e.preventDefault()
+        emit(game.ringBell())
+        return
+      }
       if (e.key === 'Backspace') {
         e.preventDefault()
         emit(game.release())
@@ -178,8 +270,26 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
     window.addEventListener('keydown', onKeyDown)
     input?.addEventListener('input', onInput)
 
+    // --- 画面下の「今打っている言葉」（大きく出す。狙っていないときは、いちばん近い影の言葉をうすく） ---
+    const bar = makeBar(labelLayer.parentElement ?? labelLayer)
+    const updateBar = () => {
+      const t = game.target ?? [...game.enemies].filter((e) => game.isVisible(e)).sort((a, b) => a.z - b.z)[0]
+      const key = t ? `${t.id}|${t.word.text}|${t.matcher.typed}|${game.target === t}` : ''
+      if (key === bar.key) return
+      bar.key = key
+      bar.el.classList.toggle('empty', !t)
+      bar.el.classList.toggle('idle', !!t && game.target !== t)
+      bar.text.textContent = t ? t.word.text : ''
+      bar.typed.textContent = t ? t.matcher.typed : ''
+      const rest = t ? t.matcher.rest : ''
+      bar.next.textContent = rest.slice(0, 1)
+      bar.rest.textContent = rest.slice(1)
+    }
+
     // --- 言葉の札 ---
     const labels = new Map<number, Label>()
+    /** 倒された影の id。札を消すとき、文字が光になって昇る演出を出す */
+    const killed = new Set<number>()
     const updateLabels = () => {
       const w = labelLayer.clientWidth, h = labelLayer.clientHeight
       const alive = new Set<number>()
@@ -196,14 +306,18 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
           continue
         }
         const visible = game.isVisible(e)
-        const key = `${visible}|${e.word.text}|${e.matcher.typed}`
+        const key = `${e.word.text}|${e.matcher.typed}`
         if (key !== l.key) {
           l.key = key
-          l.text.textContent = visible ? e.word.text : '？？？'
-          l.kana.textContent = visible && e.word.text !== e.word.kana ? e.word.kana : ''
-          l.typed.textContent = visible ? e.matcher.typed : ''
-          l.rest.textContent = visible ? e.matcher.rest : ''
+          l.text.textContent = e.word.text
+          l.kana.textContent = e.word.text !== e.word.kana ? e.word.kana : ''
+          l.typed.textContent = e.matcher.typed
+          l.rest.textContent = e.matcher.rest
         }
+        // 霧の章: 遠いほど文字がぼやける（読めないほどではない。待たせないため、すぐ打てる）
+        const fog = game.chapter.reveal > 0 && e.kind !== 'boss'
+          ? Math.max(0, Math.min(1, (e.z - 12) / 16)) * (game.perks.revealBonus > 0 ? 0.6 : 1) : 0
+        l.el.style.filter = fog > 0.05 ? `blur(${(fog * 3).toFixed(1)}px)` : ''
         // 遠いほど小さく。ボスの札は画面の幅に収まる大きさに固定
         const scale = e.kind === 'boss' ? 1 : Math.max(0.62, Math.min(1.15, 1.25 - e.z / 34))
         const locked = game.target === e
@@ -214,9 +328,13 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
         l.el.classList.toggle('near', e.z < 7 && e.kind !== 'boss')
         l.el.classList.toggle('fox', e.kind === 'fox')
         l.el.classList.toggle('hidden-word', !visible)
+        l.el.classList.toggle('danger', e.state === 'windup' || e.state === 'dash')
+        l.el.classList.toggle('armored', e.behavior === 'tank' && e.hp > 1)
       }
       for (const [id, l] of labels) {
         if (!alive.has(id)) {
+          if (killed.has(id) && l.el.style.display !== 'none') dissolve(labelLayer, l)
+          killed.delete(id)
           l.el.remove()
           labels.delete(id)
         }
@@ -233,8 +351,12 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
       if (!pausedRef.current) emit(game.update(dt))
       const nearest = game.enemies.reduce((m, e) => Math.min(m, e.z), 30)
       ambience.update(dt, game.over ? 0 : Math.max(game.boss ? 0.6 : 0, 1 - nearest / 30))
+      // 道中の曲は、影が近いほど・多いほど激しくなる（ボスの曲は言葉を返した数で決める）
+      if (music && !bossMusic) music.setIntensity(Math.max(1 - nearest / 22, (game.enemies.length - 1) / 4))
       scene.update(pausedRef.current ? 0 : dt, game)
+      if (scene.stepTaken() && !pausedRef.current) typingSounds.step()
       updateLabels()
+      updateBar()
       hudTimer += dt
       if (hudTimer >= HUD_INTERVAL) {
         hudTimer = 0
@@ -249,7 +371,9 @@ export function ForestCanvas({ game, paused, onSnapshot, onEvents, onPause, onIm
       window.removeEventListener('keydown', onKeyDown)
       input?.removeEventListener('input', onInput)
       for (const l of labels.values()) l.el.remove()
+      bar.el.remove()
       ambience.stop()
+      stopMusic()
       scene.dispose()
     }
   }, [game, inputRef])

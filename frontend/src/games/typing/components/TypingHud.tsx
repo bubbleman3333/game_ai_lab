@@ -1,6 +1,5 @@
 // 戦っているあいだの表示（油・得点・コンボ・波・ボスの残り）。3D の上に重ねる。
 
-import { HEAL_COMBO, MAX_OIL } from '../sim/game'
 import type { Snapshot } from './ForestCanvas'
 
 export interface Flash {
@@ -12,13 +11,16 @@ export interface Flash {
 interface Props {
   snap: Snapshot
   chapterLabel: string
+  goal: string
+  /** 何打ミス無しで油が戻るか（ミオがいると 20） */
+  healCombo: number
   flash: Flash | null
   hurt: number | null
   endless: boolean
 }
 
-export function TypingHud({ snap, chapterLabel, flash, hurt, endless }: Props) {
-  const toHeal = HEAL_COMBO - (snap.combo % HEAL_COMBO)
+export function TypingHud({ snap, chapterLabel, goal, healCombo, flash, hurt, endless }: Props) {
+  const toHeal = healCombo - (snap.combo % healCombo)
   return (
     <div className="typing-hud">
       {hurt !== null && <div key={hurt} className="typing-hurt" />}
@@ -26,12 +28,18 @@ export function TypingHud({ snap, chapterLabel, flash, hurt, endless }: Props) {
 
       <div className="typing-top-left">
         <div className="typing-chapter-label">{chapterLabel}</div>
+        <div className="typing-goal">{goal}</div>
         <div className="typing-oil" title="ランタンの油。影に近づかれると減り、0 で灯りが消える">
-          {Array.from({ length: MAX_OIL }, (_, i) => (
+          {Array.from({ length: snap.maxOil }, (_, i) => (
             <span key={i} className={i < snap.oil ? 'drop full' : 'drop'} />
           ))}
         </div>
         <div className="typing-heal-hint">あと {toHeal} 打で油 +1</div>
+        {snap.bells !== null && (
+          <div className={snap.bells > 0 ? 'typing-bell ready' : 'typing-bell'}>
+            🔔 {snap.bells > 0 ? <><kbd>Space</kbd> 鈴を鳴らす</> : '鈴は鳴らした'}
+          </div>
+        )}
       </div>
 
       <div className="typing-top-right">
